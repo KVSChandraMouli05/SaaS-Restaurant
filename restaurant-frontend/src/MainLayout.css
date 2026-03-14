@@ -1,0 +1,72 @@
+/* ═══════════════════════════════════════════════
+   MAIN LAYOUT — MouliServe
+═══════════════════════════════════════════════ */
+
+.main-layout {
+  display: flex;
+  min-height: 100vh;
+  background: #090D17;
+  position: relative;
+}
+
+/* ── MAIN CONTENT ── */
+.main-content {
+  flex: 1;
+  margin-left: 240px;
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-width: 0; /* prevent overflow */
+}
+
+.main-content.sidebar-closed {
+  margin-left: 0;
+}
+
+/* ── PAGE CONTENT ── */
+.page-content {
+  flex: 1;
+  overflow-y: auto;
+  background: #090D17;
+  padding: 0;
+}
+
+.page-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.page-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.page-content::-webkit-scrollbar-thumb {
+  background: #243350;
+  border-radius: 3px;
+}
+
+.page-content::-webkit-scrollbar-thumb:hover {
+  background: #3A3A3A;
+}
+
+/* ── MOBILE OVERLAY ── */
+.mobile-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 999;
+  animation: fadeIn 0.2s ease;
+  backdrop-filter: blur(2px);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 768px) {
+  .main-content {
+    margin-left: 0 !important;
+  }
+}

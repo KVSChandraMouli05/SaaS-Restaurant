@@ -1,0 +1,38 @@
+.app-layout {
+  display: flex;
+}
+
+.main-content { background: #080C14;
+  padding: 100px 30px 30px 30px;
+  transition: 0.3s;
+  width: 100%;
+}
+
+.main-content.shifted {
+  margin-left: 240px;
+}
+
+.main-content.full {
+  margin-left: 0;
+}
+
+.topbar {
+  position: fixed;
+  width: 100%;
+  height: 60px;
+  background: #0D1220;
+  color: white;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  z-index: 1000;
+}
+
+.hamburger {
+  font-size: 22px;
+  cursor: pointer;
+  margin-right: 20px;
+}
+
+body, #root { background: #080C14; color: #EDF2FF; }
+.main-content { background: #080C14; background: #080C14; }
