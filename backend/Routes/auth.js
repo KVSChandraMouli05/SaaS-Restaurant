@@ -1,6 +1,7 @@
 /**
  * Authentication Routes
  * Register, Login, Profile, Change Password
+ *  Auth system completed.
  */
 
 const express = require("express");
