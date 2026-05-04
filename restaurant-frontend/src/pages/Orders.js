@@ -1,311 +1,606 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import "./Orders.css";
 
-const STATUS_CONFIG = {
-  pending:    { label: "Pending",    color: "#F59E0B", bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)"  },
-  processing: { label: "Processing", color: "#3B82F6", bg: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.25)"  },
-  completed:  { label: "Completed",  color: "#10B981", bg: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)"  },
-  cancelled:  { label: "Cancelled",  color: "#EF4444", bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.25)"   },
+const API   = "http://localhost:5000";
+const token = () => localStorage.getItem("token");
+const authH = () => ({ Authorization: `Bearer ${token()}` });
+
+/* ── helpers ── */
+const fmt = (d) => new Date(d).toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true });
+const toLocalDateStr = (d) => {
+  const dt = new Date(d);
+  const y  = dt.getFullYear();
+  const m  = String(dt.getMonth()+1).padStart(2,"0");
+  const dy = String(dt.getDate()).padStart(2,"0");
+  return `${y}-${m}-${dy}`;
+};
+const todayStr = () => toLocalDateStr(new Date());
+const monthName = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+const STATUS_META = {
+  pending:    { label:"Pending",    color:"#F59E0B", bg:"rgba(245,158,11,.12)",  border:"rgba(245,158,11,.25)"  },
+  confirmed:  { label:"Preparing", color:"#3B82F6", bg:"rgba(59,130,246,.12)",  border:"rgba(59,130,246,.25)"  },
+  processing: { label:"Preparing", color:"#3B82F6", bg:"rgba(59,130,246,.12)",  border:"rgba(59,130,246,.25)"  },
+  completed:  { label:"Completed", color:"#10B981", bg:"rgba(16,185,129,.12)",  border:"rgba(16,185,129,.25)"  },
+  cancelled:  { label:"Cancelled", color:"#EF4444", bg:"rgba(239,68,68,.12)",   border:"rgba(239,68,68,.25)"   },
 };
 
-const STATUS_TABS = ["all", "pending", "processing", "completed", "cancelled"];
+const normalizeStatus = (value) => {
+  const raw = String(value || "").toLowerCase().trim();
+  if (raw === "confirmed") return "processing";
+  return raw;
+};
 
 export default function Orders() {
-  const [orders, setOrders]                         = useState([]);
-  const [restaurants, setRestaurants]               = useState([]);
-  const [loading, setLoading]                       = useState(true);
-  const [selectedRestaurant, setSelectedRestaurant] = useState("all");
-  const [selectedStatus, setSelectedStatus]         = useState("all");
-  const [updatingId, setUpdatingId]                 = useState(null);
-  const token = localStorage.getItem("token");
+  const [orders,      setOrders]      = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [selectedDate,setSelectedDate]= useState(todayStr());
+  const [calOpen,     setCalOpen]     = useState(false);
+  const [calYear,     setCalYear]     = useState(new Date().getFullYear());
+  const [calMonth,    setCalMonth]    = useState(new Date().getMonth());
+  const [selected,    setSelected]    = useState(null); // order detail
+  const [statusFilter,setStatusFilter]= useState("all");
+  const [updating,    setUpdating]    = useState(null);
 
-  useEffect(() => { fetchRestaurants(); }, []);
-  useEffect(() => { if (restaurants.length > 0) fetchOrders(); }, [selectedRestaurant, selectedStatus, restaurants]);
-
-  /* ── FETCH RESTAURANTS ── */
-  const fetchRestaurants = async () => {
-    try {
-      const res  = await fetch("http://localhost:5000/api/restaurants", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.status === "success") {
-        let list = [];
-        if (Array.isArray(data.data)) list = data.data;
-        else if (Array.isArray(data.data?.restaurants)) list = data.data.restaurants;
-        else if (Array.isArray(data.restaurants)) list = data.restaurants;
-        setRestaurants(list);
-        fetchOrders(list); // pass list directly so fetchOrders doesn't wait for state
-      }
-    } catch (err) { console.error("Failed to fetch restaurants:", err); }
-  };
-
-  /* ── FETCH ORDERS (per restaurant, then merge) ── */
-  const fetchOrders = async (restaurantList) => {
+  const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
-      // Use passed list or current state
-      const list = restaurantList || restaurants;
-
-      if (list.length === 0) {
+      const res  = await fetch(`${API}/api/orders`, { headers: authH() });
+      const data = await res.json();
+      if (data.status === "success") {
+        const rows = Array.isArray(data.data) ? data.data : [];
+        setOrders(rows.map((o) => ({ ...o, status: normalizeStatus(o.status) })));
+      } else {
         setOrders([]);
-        setLoading(false);
-        return;
+      }
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
+  /* ── parse order_items (JSONB stored as string or array) ── */
+  const parseItems = (raw) => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    try { return JSON.parse(raw); } catch { return []; }
+  };
+
+  /* ── filter by selected date + status ── */
+  const dayOrders = orders.filter(o => {
+    const dateMatch   = toLocalDateStr(o.created_at) === selectedDate;
+    const statusMatch = statusFilter === "all" || o.status === statusFilter;
+    return dateMatch && statusMatch;
+  });
+
+  /* ── dates that have orders (for calendar dots) ── */
+  const activeDates = new Set(orders.map(o => toLocalDateStr(o.created_at)));
+
+  /* ── order totals for selected date ── */
+  const dayTotal    = dayOrders.reduce((s,o) => s + parseFloat(o.total_amount||0), 0);
+  const pendingCnt  = dayOrders.filter(o => o.status === "pending").length;
+  const completeCnt = dayOrders.filter(o => o.status === "completed").length;
+
+  /* ── update status ── */
+  const updateStatus = async (orderId, newStatus) => {
+    setUpdating(orderId);
+    try {
+      const targetOrder = orders.find((o) => String(o.id) === String(orderId));
+      const candidates = [`${API}/api/orders/${orderId}/status`];
+
+      // Backward compatibility with legacy backend route shape.
+      const restaurantId = targetOrder?.restaurant_id || selected?.restaurant_id;
+      if (restaurantId) {
+        candidates.push(
+          `${API}/api/orders/${restaurantId}/orders/${orderId}`,
+          `${API}/api/restaurants/${restaurantId}/orders/${orderId}`
+        );
       }
 
-      // If a specific restaurant is selected, only fetch that one
-      const targets = selectedRestaurant !== "all"
-        ? list.filter(r => String(r.id) === String(selectedRestaurant))
-        : list;
+      const statusCandidates = (() => {
+        if (newStatus === "processing") return ["processing", "confirmed"];
+        if (newStatus === "confirmed") return ["confirmed", "processing"];
+        return [newStatus];
+      })();
 
-      // Fetch orders for each restaurant in parallel
-      const results = await Promise.all(
-        targets.map(async (r) => {
-          try {
-            const params = new URLSearchParams();
-            if (selectedStatus !== "all") params.append("status", selectedStatus);
-            const url = `http://localhost:5000/api/restaurants/${r.id}/orders${params.toString() ? `?${params}` : ""}`;
-            const res  = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-            const data = await res.json();
-            if (data.status === "success") {
-              let orders = [];
-              if (Array.isArray(data.data)) orders = data.data;
-              else if (Array.isArray(data.data?.orders)) orders = data.data.orders;
-              else if (Array.isArray(data.orders)) orders = data.orders;
-              // Attach restaurant_name if not already present
-              return orders.map(o => ({ ...o, restaurant_name: o.restaurant_name || r.restaurant_name || r.name }));
-            }
-            return [];
-          } catch {
-            return [];
+      let payload = null;
+      let lastError = null;
+
+      for (const url of candidates) {
+        for (const statusValue of statusCandidates) {
+          const res = await fetch(url, {
+            method: "PUT",
+            headers: { ...authH(), "Content-Type": "application/json" },
+            body: JSON.stringify({ status: statusValue }),
+          });
+
+          const body = await res.json().catch(() => null);
+          if (res.ok && body?.status === "success" && body?.data) {
+            payload = body;
+            lastError = null;
+            break;
           }
-        })
-      );
 
-      // Flatten and sort by date descending
-      const allOrders = results.flat().sort((a, b) =>
-        new Date(b.created_at) - new Date(a.created_at)
-      );
+          lastError = new Error(body?.message || `Failed request: ${url}`);
+        }
 
-      setOrders(allOrders);
-    } catch (err) {
-      console.error("Failed to fetch orders:", err);
-    } finally {
-      setLoading(false);
+        if (payload?.data) break;
+      }
+
+      if (!payload?.data) {
+        throw lastError || new Error("Failed to update order status");
+      }
+
+      const nextStatus = normalizeStatus(payload.data.status || newStatus);
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...payload.data, status: nextStatus } : o)));
+      if (selected?.id === orderId) {
+        setSelected((prev) => ({ ...prev, ...payload.data, status: nextStatus }));
+      }
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Unable to update order status right now.");
     }
+    setUpdating(null);
   };
 
-  /* ── UPDATE STATUS ── */
-  const updateOrderStatus = async (orderId, restaurantId, newStatus) => {
-    setUpdatingId(orderId);
-    try {
-      const res  = await fetch(`http://localhost:5000/api/restaurants/${restaurantId}/orders/${orderId}`, {
-        method:  "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ status: newStatus }),
-      });
-      const data = await res.json();
-      if (data.status === "success") fetchOrders();
-      else alert(data.message);
-    } catch (err) { alert("Failed to update order"); }
-    finally { setUpdatingId(null); }
+  /* ── calendar helpers ── */
+  const daysInMonth = (y,m) => new Date(y, m+1, 0).getDate();
+  const firstDay    = (y,m) => new Date(y, m, 1).getDay();
+
+  const calDays = () => {
+    const total = daysInMonth(calYear, calMonth);
+    const start = firstDay(calYear, calMonth);
+    const days  = [];
+    for (let i=0; i<start; i++) days.push(null);
+    for (let d=1; d<=total; d++) days.push(d);
+    return days;
   };
 
-  /* ── STATS ── */
-  const stats = {
-    total:      orders.length,
-    pending:    orders.filter(o => o.status?.toLowerCase() === "pending").length,
-    processing: orders.filter(o => o.status?.toLowerCase() === "processing").length,
-    completed:  orders.filter(o => o.status?.toLowerCase() === "completed").length,
-    cancelled:  orders.filter(o => o.status?.toLowerCase() === "cancelled").length,
-    revenue:    orders
-      .filter(o => o.status?.toLowerCase() === "completed")
-      .reduce((s, o) => s + (parseFloat(o.total_amount) || 0), 0),
+  const selectCalDay = (d) => {
+    if (!d) return;
+    const m  = String(calMonth+1).padStart(2,"0");
+    const dy = String(d).padStart(2,"0");
+    setSelectedDate(`${calYear}-${m}-${dy}`);
+    setCalOpen(false);
   };
 
-  const getStatus = (s) => STATUS_CONFIG[s?.toLowerCase()] || STATUS_CONFIG.pending;
+  const displayDate = () => {
+    const [y,m,d] = selectedDate.split("-");
+    const dt = new Date(+y, +m-1, +d);
+    const isToday = selectedDate === todayStr();
+    return isToday
+      ? `Today, ${dt.getDate()} ${monthName[dt.getMonth()]} ${dt.getFullYear()}`
+      : `${dt.getDate()} ${monthName[dt.getMonth()]} ${dt.getFullYear()}`;
+  };
 
   return (
-    <div className="orders-page">
+    <div className="ord-page">
 
-      {/* ── Header ── */}
-      <div className="orders-header">
+      {/* ═══ HEADER ═══ */}
+      <div className="ord-header">
         <div>
-          <h1 className="orders-title">Orders</h1>
-          <p className="orders-subtitle">Manage and track all your orders</p>
+          <h1 className="ord-title">Orders</h1>
+          <p className="ord-subtitle">Live order management · Updated in real time</p>
         </div>
-        <button className="orders-refresh-btn" onClick={fetchOrders} title="Refresh">
-          <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15">
-            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+        <button className="ord-refresh-btn" onClick={fetchOrders} disabled={loading}>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"
+            width="14" height="14" className={loading ? "ord-spin" : ""}>
+            <path d="M13.5 2.5A6.5 6.5 0 102 9" strokeLinecap="round"/>
+            <path d="M1 5.5L2 9l3.5-1" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Refresh
         </button>
       </div>
 
-      {/* ── Stat Cards ── */}
-      <div className="orders-stats">
-        {[
-          { label: "Total Orders",        value: stats.total,      color: "#fff"    },
-          { label: "Pending",             value: stats.pending,    color: "#F59E0B" },
-          { label: "Processing",          value: stats.processing, color: "#3B82F6" },
-          { label: "Revenue (Completed)", value: `₹${stats.revenue.toLocaleString("en-IN")}`, color: "#10B981" },
-        ].map((s, i) => (
-          <div key={i} className="ostat-card" style={{ animationDelay: `${i * 0.07}s` }}>
-            <p className="ostat-label">{s.label}</p>
-            <p className="ostat-value" style={{ color: s.color }}>{s.value}</p>
-          </div>
-        ))}
-      </div>
+      {/* ═══ DATE BAR ═══ */}
+      <div className="ord-datebar">
+        <div className="ord-datebar-left">
 
-      {/* ── Filters ── */}
-      <div className="orders-filters">
-        <div className="status-tabs">
-          {STATUS_TABS.map(s => {
-            const count =
-              s === "all"        ? stats.total      :
-              s === "pending"    ? stats.pending     :
-              s === "processing" ? stats.processing  :
-              s === "completed"  ? stats.completed   : stats.cancelled;
-            return (
-              <button
-                key={s}
-                className={`status-tab ${selectedStatus === s ? "status-tab--active" : ""}`}
-                onClick={() => setSelectedStatus(s)}
-              >
-                {s === "all" ? "All" : STATUS_CONFIG[s].label}
-                <span className="tab-count">{count}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <select
-          className="orders-select"
-          value={selectedRestaurant}
-          onChange={(e) => setSelectedRestaurant(e.target.value)}
-        >
-          <option value="all">All Restaurants</option>
-          {restaurants.map(r => (
-            <option key={r.id} value={r.id}>{r.restaurant_name || r.name}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* ── Main Content ── */}
-      <main className="orders-main">
-        {loading ? (
-          <div className="orders-loading">
-            <div className="orders-spinner"></div>
-            <p>Loading orders...</p>
-          </div>
-
-        ) : orders.length === 0 ? (
-          <div className="orders-empty">
-            <div className="empty-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+          {/* Calendar toggle */}
+          <div className="ord-cal-wrap">
+            <button className="ord-date-btn" onClick={() => setCalOpen(p=>!p)}>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6"
+                width="14" height="14">
+                <rect x="1" y="2" width="14" height="13" rx="2"/>
+                <path d="M1 6h14M5 1v2M11 1v2" strokeLinecap="round"/>
               </svg>
-            </div>
-            <h2>No Orders Found</h2>
-            <p>
-              {selectedStatus !== "all" || selectedRestaurant !== "all"
-                ? "Try adjusting your filters."
-                : "Orders will appear here once customers start placing them."}
-            </p>
-            {(selectedStatus !== "all" || selectedRestaurant !== "all") && (
-              <button
-                className="clear-filters-btn"
-                onClick={() => { setSelectedStatus("all"); setSelectedRestaurant("all"); }}
-              >
-                Clear Filters
+              <span>{displayDate()}</span>
+              <svg viewBox="0 0 10 6" fill="none" stroke="currentColor" strokeWidth="1.8"
+                width="10" height="6">
+                <path d="M1 1l4 4 4-4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+
+            {/* Today shortcut */}
+            {selectedDate !== todayStr() && (
+              <button className="ord-today-btn" onClick={() => setSelectedDate(todayStr())}>
+                Today
               </button>
+            )}
+
+            {/* Calendar dropdown */}
+            {calOpen && (
+              <div className="ord-calendar">
+                <div className="ord-cal-head">
+                  <button onClick={() => {
+                    if (calMonth===0) { setCalMonth(11); setCalYear(y=>y-1); }
+                    else setCalMonth(m=>m-1);
+                  }}>‹</button>
+                  <span>{monthName[calMonth]} {calYear}</span>
+                  <button onClick={() => {
+                    if (calMonth===11) { setCalMonth(0); setCalYear(y=>y+1); }
+                    else setCalMonth(m=>m+1);
+                  }}>›</button>
+                </div>
+                <div className="ord-cal-weekdays">
+                  {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => (
+                    <span key={d}>{d}</span>
+                  ))}
+                </div>
+                <div className="ord-cal-grid">
+                  {calDays().map((d, i) => {
+                    if (!d) return <span key={`e-${i}`} />;
+                    const m    = String(calMonth+1).padStart(2,"0");
+                    const dy   = String(d).padStart(2,"0");
+                    const ds   = `${calYear}-${m}-${dy}`;
+                    const isSelected = ds === selectedDate;
+                    const isToday    = ds === todayStr();
+                    const hasOrders  = activeDates.has(ds);
+                    return (
+                      <button
+                        key={d}
+                        className={`ord-cal-day ${isSelected?"sel":""} ${isToday?"today":""}`}
+                        onClick={() => selectCalDay(d)}
+                      >
+                        {d}
+                        {hasOrders && <span className="ord-cal-dot" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
 
-        ) : (
-          <>
-            <p className="orders-meta">{orders.length} order{orders.length !== 1 ? "s" : ""}</p>
-            <div className="orders-table-wrap">
-              <table className="orders-table">
-                <thead>
-                  <tr>
-                    <th>Order ID</th>
-                    <th>Restaurant</th>
-                    <th>Customer</th>
-                    <th>Items</th>
-                    <th>Amount</th>
-                    <th>Date</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((order, i) => {
-                    const st         = getStatus(order.status);
-                    const isUpdating = updatingId === order.id;
-                    const status     = order.status?.toLowerCase();
-                    return (
-                      <tr key={order.id} className="order-row" style={{ animationDelay: `${i * 0.025}s` }}>
+          {/* Status filter pills */}
+          <div className="ord-filters">
+            {["all","pending","processing","completed","cancelled"].map(s => (
+              <button
+                key={s}
+                className={`ord-filter-pill ${statusFilter===s?"on":""}`}
+                onClick={() => setStatusFilter(s)}
+              >
+                {s === "all" ? "All" : STATUS_META[s]?.label}
+                <span>{s==="all" ? dayOrders.length : dayOrders.filter(o=>o.status===s).length}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
-                        <td><span className="cell-id">#{order.id}</span></td>
+        {/* Day summary */}
+        <div className="ord-day-summary">
+          <div className="ord-sum-item">
+            <span className="ord-sum-val">{dayOrders.length}</span>
+            <span className="ord-sum-lbl">Orders</span>
+          </div>
+          <div className="ord-sum-sep"/>
+          <div className="ord-sum-item">
+            <span className="ord-sum-val ord-sum-green">₹{dayTotal.toLocaleString("en-IN")}</span>
+            <span className="ord-sum-lbl">Revenue</span>
+          </div>
+          <div className="ord-sum-sep"/>
+          <div className="ord-sum-item">
+            <span className="ord-sum-val ord-sum-amber">{pendingCnt}</span>
+            <span className="ord-sum-lbl">Pending</span>
+          </div>
+          <div className="ord-sum-sep"/>
+          <div className="ord-sum-item">
+            <span className="ord-sum-val ord-sum-teal">{completeCnt}</span>
+            <span className="ord-sum-lbl">Done</span>
+          </div>
+        </div>
+      </div>
 
-                        <td>
-                          <span className="cell-restaurant">
-                            <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4zm3 1h2v2H7V5zm0 4h2v2H7V9zm0 4h2v2H7v-2zm4-8h2v2h-2V5zm0 4h2v2h-2V9zm0 4h2v2h-2v-2z" clipRule="evenodd"/>
-                            </svg>
-                            {order.restaurant_name || "—"}
-                          </span>
-                        </td>
+      {/* ═══ MAIN: TABLE + DETAIL PANEL ═══ */}
+      <div className={`ord-body ${selected ? "ord-body-split" : ""}`}>
 
-                        <td className="cell-muted">{order.customer_name || "—"}</td>
-                        <td className="cell-muted">{order.items || order.item_count || "—"}</td>
-
-                        <td>
-                          <span className="cell-amount">
-                            ₹{parseFloat(order.total_amount || 0).toLocaleString("en-IN")}
-                          </span>
-                        </td>
-
-                        <td className="cell-muted">
-                          {order.created_at
-                            ? new Date(order.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-                            : "—"}
-                        </td>
-
-                        <td>
-                          <span className="cell-status" style={{ background: st.bg, color: st.color, borderColor: st.border }}>
-                            {st.label}
-                          </span>
-                        </td>
-
-                        <td>
-                          {isUpdating ? (
-                            <span className="mini-spinner"></span>
-                          ) : status === "pending" ? (
-                            <div className="cell-actions">
-                              <button className="tbl-btn tbl-btn--accept"   onClick={() => updateOrderStatus(order.id, order.restaurant_id, "processing")}>Accept</button>
-                              <button className="tbl-btn tbl-btn--cancel"   onClick={() => updateOrderStatus(order.id, order.restaurant_id, "cancelled")}>Cancel</button>
-                            </div>
-                          ) : status === "processing" ? (
-                            <button className="tbl-btn tbl-btn--complete" onClick={() => updateOrderStatus(order.id, order.restaurant_id, "completed")}>Complete</button>
-                          ) : (
-                            <span className="cell-done" style={{ color: status === "completed" ? "#10B981" : "#555" }}>
-                              {status === "completed" ? "✓ Done" : "✕ Cancelled"}
-                            </span>
-                          )}
-                        </td>
-
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        {/* ── Orders table ── */}
+        <div className="ord-table-wrap">
+          {loading ? (
+            <div className="ord-loading">
+              <div className="ord-spinner"/><p>Loading orders…</p>
             </div>
-          </>
-        )}
-      </main>
+          ) : dayOrders.length === 0 ? (
+            <div className="ord-empty">
+              <svg viewBox="0 0 64 64" fill="none" stroke="rgba(255,255,255,.1)"
+                strokeWidth="1.5" width="52" height="52">
+                <rect x="8" y="12" width="48" height="40" rx="4"/>
+                <path d="M20 24h24M20 32h18M20 40h12" strokeLinecap="round"/>
+              </svg>
+              <p>No orders for {displayDate()}</p>
+              <span>Orders placed today will appear here automatically</span>
+            </div>
+          ) : (
+            <table className="ord-table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Restaurant</th>
+                  <th>Customer</th>
+                  <th>Items</th>
+                  <th>Amount</th>
+                  <th>Time</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dayOrders.map(order => {
+                  const items   = parseItems(order.order_items || order.items);
+                  const isOpen  = selected?.id === order.id;
+                  const meta    = STATUS_META[order.status] || STATUS_META.pending;
+                  return (
+                    <tr
+                      key={order.id}
+                      className={`ord-row ${isOpen?"ord-row-active":""}`}
+                      onClick={() => setSelected(isOpen ? null : order)}
+                    >
+                      <td>
+                        <span className="ord-id">#{order.id}</span>
+                      </td>
+                      <td>
+                        <span className="ord-restaurant">{order.restaurant_name}</span>
+                      </td>
+                      <td>
+                        <div className="ord-customer">
+                          <div className="ord-cust-avatar">
+                            {(order.customer_name||"?")[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="ord-cust-name">{order.customer_name}</div>
+                            {order.customer_phone && (
+                              <div className="ord-cust-phone">{order.customer_phone}</div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {items.length === 0 ? (
+                          <span className="ord-no-items">—</span>
+                        ) : (
+                          <div className="ord-items-preview">
+                            {items.slice(0,2).map((it,i) => (
+                              <span key={i} className="ord-item-tag">
+                                {it.name}
+                                {it.quantity > 1 && <em>×{it.quantity}</em>}
+                              </span>
+                            ))}
+                            {items.length > 2 && (
+                              <span className="ord-item-more">+{items.length-2}</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <span className="ord-amount">
+                          ₹{parseFloat(order.total_amount||0).toLocaleString("en-IN")}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="ord-time">{fmt(order.created_at)}</span>
+                      </td>
+                      <td>
+                        <span className="ord-status-badge" style={{
+                          color: meta.color, background: meta.bg, border:`1px solid ${meta.border}`
+                        }}>
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <StatusActions
+                          status={order.status}
+                          orderId={order.id}
+                          onUpdate={updateStatus}
+                          loading={updating===order.id}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
 
+        {/* ── Order detail panel ── */}
+        {selected && (
+          <OrderDetail
+            order={selected}
+            parseItems={parseItems}
+            onClose={() => setSelected(null)}
+            onUpdate={updateStatus}
+            updating={updating===selected.id}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   STATUS ACTION BUTTONS
+════════════════════════════════════════ */
+function StatusActions({ status, orderId, onUpdate, loading }) {
+  const next = {
+    pending:    { label:"Accept",   next:"processing", cls:"btn-blue"  },
+    confirmed:  { label:"Complete", next:"completed",  cls:"btn-green" },
+    processing: { label:"Complete", next:"completed",  cls:"btn-green" },
+    completed:  null,
+    cancelled:  null,
+  }[status];
+
+  return (
+    <div className="ord-actions">
+      {next && (
+        <button
+          className={`ord-action-btn ${next.cls}`}
+          onClick={() => onUpdate(orderId, next.next)}
+          disabled={loading}
+        >
+          {loading ? <span className="ord-btn-spin"/> : next.label}
+        </button>
+      )}
+      {status === "pending" && (
+        <button
+          className="ord-action-btn btn-red"
+          onClick={() => onUpdate(orderId, "cancelled")}
+          disabled={loading}
+        >
+          Reject
+        </button>
+      )}
+      {(status === "completed" || status === "cancelled") && (
+        <span className="ord-done-label">
+          {status === "completed" ? "✓ Done" : "✗ Cancelled"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════
+   ORDER DETAIL PANEL
+════════════════════════════════════════ */
+function OrderDetail({ order, parseItems, onClose, onUpdate, updating }) {
+  const items = parseItems(order.order_items || order.items);
+  const meta  = STATUS_META[order.status] || STATUS_META.pending;
+  const total = parseFloat(order.total_amount || 0);
+
+  return (
+    <div className="ord-detail">
+      {/* Header */}
+      <div className="ord-detail-hd">
+        <div>
+          <div className="ord-detail-id">Order #{order.id}</div>
+          <div className="ord-detail-time">
+            {new Date(order.created_at).toLocaleString("en-IN",{
+              day:"numeric", month:"short", year:"numeric",
+              hour:"2-digit", minute:"2-digit", hour12:true
+            })}
+          </div>
+        </div>
+        <div className="ord-detail-hd-right">
+          <span className="ord-status-badge" style={{
+            color: meta.color, background: meta.bg, border:`1px solid ${meta.border}`
+          }}>
+            {meta.label}
+          </span>
+          <button className="ord-detail-close" onClick={onClose}>
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"
+              width="12" height="12">
+              <path d="M1 1l12 12M13 1L1 13" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div className="ord-detail-body">
+
+        {/* Restaurant */}
+        <div className="ord-detail-section">
+          <p className="ord-detail-label">RESTAURANT</p>
+          <p className="ord-detail-val">{order.restaurant_name}</p>
+        </div>
+
+        {/* Customer */}
+        <div className="ord-detail-section">
+          <p className="ord-detail-label">CUSTOMER</p>
+          <div className="ord-detail-cust">
+            <div className="ord-detail-avatar">
+              {(order.customer_name||"?")[0].toUpperCase()}
+            </div>
+            <div>
+              <p className="ord-detail-val">{order.customer_name}</p>
+              {order.customer_phone && (
+                <p className="ord-detail-sub">{order.customer_phone}</p>
+              )}
+              {order.customer_email && (
+                <p className="ord-detail-sub">{order.customer_email}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Items */}
+        <div className="ord-detail-section">
+          <p className="ord-detail-label">ORDER ITEMS ({items.length})</p>
+          {items.length === 0 ? (
+            <p className="ord-detail-sub">No item details available</p>
+          ) : (
+            <div className="ord-detail-items">
+              {items.map((it, i) => (
+                <div key={i} className="ord-detail-item">
+                  <div className="ord-di-left">
+                    <span className="ord-di-qty">×{it.quantity||1}</span>
+                    <span className="ord-di-name">{it.name}</span>
+                  </div>
+                  <span className="ord-di-price">
+                    ₹{(parseFloat(it.price||0) * (it.quantity||1)).toLocaleString("en-IN")}
+                  </span>
+                </div>
+              ))}
+              <div className="ord-detail-total">
+                <span>Total</span>
+                <span>₹{total.toLocaleString("en-IN")}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Special instructions */}
+        {order.special_instructions && (
+          <div className="ord-detail-section">
+            <p className="ord-detail-label">SPECIAL INSTRUCTIONS</p>
+            <p className="ord-detail-note">{order.special_instructions}</p>
+          </div>
+        )}
+
+        {/* Actions */}
+        {(order.status === "pending" || order.status === "processing") && (
+          <div className="ord-detail-section">
+            <p className="ord-detail-label">UPDATE STATUS</p>
+            <div className="ord-detail-actions">
+              {order.status === "pending" && (
+                <>
+                  <button
+                    className="ord-detail-btn btn-blue"
+                    onClick={() => onUpdate(order.id, "processing")}
+                    disabled={updating}
+                  >
+                    {updating ? <span className="ord-btn-spin"/> : "✓ Accept Order"}
+                  </button>
+                  <button
+                    className="ord-detail-btn btn-red"
+                    onClick={() => onUpdate(order.id, "cancelled")}
+                    disabled={updating}
+                  >
+                    ✗ Reject
+                  </button>
+                </>
+              )}
+              {order.status === "processing" && (
+                <button
+                  className="ord-detail-btn btn-green"
+                  onClick={() => onUpdate(order.id, "completed")}
+                  disabled={updating}
+                >
+                  {updating ? <span className="ord-btn-spin"/> : "✓ Mark Completed"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

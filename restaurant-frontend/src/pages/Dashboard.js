@@ -1,12 +1,72 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./Dashboard.css";
 
-const RANGES = [
-  { label: "7 Days",  value: 7   },
-  { label: "30 Days", value: 30  },
-  { label: "90 Days", value: 90  },
-  { label: "Year",    value: 365 },
-];
+const toDateInput = (value) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+};
+const todayInput = () => toDateInput(new Date());
+const daysAgoInput = (days) => toDateInput(new Date(Date.now() - days * 86400000));
+const parseDateInput = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  const [y, m, d] = String(value).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+};
+const formatShortDate = (value) => {
+  const d = parseDateInput(value);
+  if (!d) return "";
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+};
+const parseMonthInput = (value) => {
+  if (!value) return null;
+  const [y, m] = String(value).split("-").map(Number);
+  if (!y || !m) return null;
+  return { year: y, month: m - 1 };
+};
+const formatMonthYear = (value) => {
+  const parsed = parseMonthInput(value);
+  if (!parsed) return "";
+  return new Date(parsed.year, parsed.month, 1).toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+};
+const formatFullDate = (value) => {
+  const d = parseDateInput(value);
+  if (!d) return "";
+  return d.toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+const formatDateDayYear = (value) => {
+  const d = parseDateInput(value);
+  if (!d) return "";
+  const datePart = d.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  const dayPart = d.toLocaleDateString("en-IN", { weekday: "long" });
+  return `${datePart} • ${dayPart}`;
+};
+const getDayPhaseWish = (hour) => {
+  if (hour >= 5 && hour < 12) {
+    return { message: "Have a Great Morning", symbol: "☀️" };
+  }
+  if (hour >= 12 && hour < 17) {
+    return { message: "Have a Productive Afternoon", symbol: "🌤️" };
+  }
+  return { message: "Have a Peaceful Night", symbol: "🌙" };
+};
 
 /* ── Locked Section ── */
 function DashLocked({ title, subtitle, requiredPlan }) {
@@ -71,20 +131,47 @@ export default function Dashboard() {
   const [error, setError]               = useState(null);
   const [greeting, setGreeting]         = useState("");
   const [animateCards, setAnimateCards] = useState(false);
-  const [range, setRange]               = useState(7);
-  const [revenueData, setRevenueData]   = useState([]);
-  const [ordersData, setOrdersData]     = useState([]);
+  const [rangeStart, setRangeStart]     = useState(daysAgoInput(6));
+  const [rangeEnd, setRangeEnd]         = useState(todayInput());
   const [refreshing, setRefreshing]     = useState(false);
   const [restaurants, setRestaurants]   = useState([]);
   const [allOrders, setAllOrders]       = useState([]);
   const [planName, setPlanName]         = useState(null); // null = loading
+  const [year, setYear]                 = useState(() => new Date().getFullYear());
+  const [monthInput, setMonthInput]     = useState(() => new Date().toISOString().slice(0, 7));
+  const [revenuePhase, setRevenuePhase] = useState("H1");
+  const [kpiDate, setKpiDate]           = useState(() => todayInput());
+  const kpiDateInputRef                 = useRef(null);
   const token = localStorage.getItem("token");
+
+  const openKpiDatePicker = () => {
+    const input = kpiDateInputRef.current;
+    if (!input) return;
+
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+        return;
+      }
+    } catch {
+      // Some browsers reject showPicker without a trusted direct gesture.
+    }
+
+    try {
+      input.focus({ preventScroll: true });
+    } catch {
+      input.focus();
+    }
+    input.click();
+  };
 
   useEffect(() => {
     const hour = new Date().getHours();
-    if (hour < 12)      setGreeting("Good Morning");
+    if (hour < 5)       setGreeting("Good Night");
+    else if (hour < 12) setGreeting("Good Morning");
     else if (hour < 17) setGreeting("Good Afternoon");
-    else                setGreeting("Good Evening");
+    else if (hour < 21) setGreeting("Good Evening");
+    else                setGreeting("Good Night");
     fetchDashboard();
   }, []);
 
@@ -116,15 +203,6 @@ export default function Dashboard() {
       const d = data.data;
       setStats(d);
 
-      if (d?.revenue_by_day?.length > 0) {
-        const days = range;
-        setRevenueData(d.revenue_by_day.slice(-days));
-        setOrdersData(d.orders_by_day.slice(-days));
-      } else {
-        setRevenueData([]);
-        setOrdersData([]);
-      }
-
       if (d?.restaurants?.length > 0) {
         setRestaurants(d.restaurants.map(r => ({ id: r.id, restaurant_name: r.name, ...r })));
       }
@@ -149,11 +227,78 @@ export default function Dashboard() {
     }
   };
 
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    let minYear = currentYear;
+    let maxYear = currentYear;
+    allOrders.forEach((o) => {
+      if (!o.created_at) return;
+      const y = new Date(o.created_at).getFullYear();
+      if (y < minYear) minYear = y;
+      if (y > maxYear) maxYear = y;
+    });
+    // Always show previous year for quick comparison (e.g., 2025 in 2026)
+    minYear = Math.min(minYear, currentYear - 1);
+    const years = [];
+    for (let y = maxYear; y >= minYear; y -= 1) years.push(y);
+    return years;
+  }, [allOrders]);
+
   useEffect(() => {
-    if (!stats?.revenue_by_day) return;
-    setRevenueData(stats.revenue_by_day.slice(-range));
-    setOrdersData(stats.orders_by_day.slice(-range));
-  }, [range]);
+    if (!yearOptions.includes(year)) {
+      setYear(yearOptions[0]);
+    }
+  }, [yearOptions, year]);
+
+  const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthlyRevenue = useMemo(() => {
+    const totals = Array(12).fill(0);
+    allOrders.forEach((o) => {
+      if (!o.created_at) return;
+      const d = new Date(o.created_at);
+      if (d.getFullYear() !== year) return;
+      totals[d.getMonth()] += parseFloat(o.total_amount || 0);
+    });
+    return totals;
+  }, [allOrders, year]);
+  const phaseLabels = revenuePhase === "H2" ? monthLabels.slice(6) : monthLabels.slice(0, 6);
+  const phaseData = revenuePhase === "H2" ? monthlyRevenue.slice(6) : monthlyRevenue.slice(0, 6);
+  const phaseRangeLabel = revenuePhase === "H2" ? "Jul - Dec" : "Jan - Jun";
+  const hasPhaseRevenue = phaseData.some((v) => v > 0);
+
+  const weeklyRevenue = useMemo(() => {
+    const totals = Array(5).fill(0);
+    const parsed = parseMonthInput(monthInput);
+    if (!parsed) return totals;
+    allOrders.forEach((o) => {
+      if (!o.created_at) return;
+      const d = new Date(o.created_at);
+      if (d.getFullYear() !== parsed.year || d.getMonth() !== parsed.month) return;
+      const idx = Math.min(4, Math.floor((d.getDate() - 1) / 7));
+      totals[idx] += parseFloat(o.total_amount || 0);
+    });
+    return totals;
+  }, [allOrders, monthInput]);
+  const hasWeeklyRevenue = weeklyRevenue.some((v) => v > 0);
+  const weeklyLabels = ["Week 1", "Week 2", "Week 3", "Week 4", "Week 5"];
+
+  const kpiOrders = useMemo(() => {
+    if (!kpiDate) return [];
+    return allOrders.filter((o) => toDateInput(o.created_at) === kpiDate);
+  }, [allOrders, kpiDate]);
+  const kpiOrdersCount = kpiOrders.length;
+  const kpiRevenue = kpiOrders.reduce(
+    (sum, o) => sum + parseFloat(o.total_amount || 0),
+    0
+  );
+  const kpiActiveRestaurants = new Set(
+    kpiOrders.map((o) => o.restaurant_id)
+  ).size;
+  const kpiAvgOrderValue =
+    kpiOrdersCount > 0 ? Math.round(kpiRevenue / kpiOrdersCount) : 0;
+  const kpiDateLabel = formatFullDate(kpiDate);
+  const presentDateLabel = formatDateDayYear(todayInput());
+  const dayPhaseWish = getDayPhaseWish(new Date().getHours());
 
   if (loading) {
     return (
@@ -180,10 +325,6 @@ export default function Dashboard() {
     );
   }
 
-  const todayOrders      = stats?.today_orders      ?? 0;
-  const todayRevenue     = stats?.today_revenue      ?? 0;
-  const totalRestaurants = stats?.total_restaurants  ?? 0;
-  const avgOrderValue    = stats?.avg_order_value    ?? 0;
   const totalOrders      = stats?.total_orders       ?? 0;
   const totalRevenue     = stats?.total_revenue      ?? 0;
 
@@ -192,7 +333,6 @@ export default function Dashboard() {
   const isPro      = planName === "Pro";
   const isTrial    = planName === "Trial";
   const isBasic    = planName === "Basic";
-  const showCharts = isPremium || isPro || isTrial;
 
   // ── Top Revenue Restaurants ──
   const topRestaurants = (() => {
@@ -212,20 +352,42 @@ export default function Dashboard() {
   })();
   const maxRevenue = topRestaurants[0]?.revenue || 1;
 
+  const filteredOrders = (() => {
+    const start = parseDateInput(rangeStart);
+    const end = parseDateInput(rangeEnd);
+    if (!start || !end || end < start) return [];
+    return allOrders.filter((o) => {
+      const dateKey = toDateInput(o.created_at);
+      return dateKey && dateKey >= rangeStart && dateKey <= rangeEnd;
+    });
+  })();
+
+  const rangeSeries = (() => {
+    const start = parseDateInput(rangeStart);
+    const end = parseDateInput(rangeEnd);
+    if (!start || !end || end < start) return [];
+    const days = Math.floor((end - start) / 86400000);
+    const map = new Map();
+    for (let i = 0; i <= days; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const key = toDateInput(d);
+      map.set(key, { date: key, revenue: 0, orders: 0 });
+    }
+    filteredOrders.forEach((o) => {
+      const key = toDateInput(o.created_at);
+      if (!map.has(key)) return;
+      const row = map.get(key);
+      row.orders += 1;
+      row.revenue += parseFloat(o.total_amount || 0);
+    });
+    return Array.from(map.values()).map((row) => ({
+      ...row,
+      label: formatShortDate(row.date),
+    }));
+  })();
+
   // ── Peak Hours Heatmap ──
-  const hourCounts = Array(24).fill(0);
-  allOrders.forEach(o => {
-    if (o.created_at) hourCounts[new Date(o.created_at).getHours()]++;
-  });
-  const maxHourCount = Math.max(...hourCounts, 1);
-  const hourBlocks = [
-    { label: "12am–4am",  hours: [0,1,2,3]     },
-    { label: "4am–8am",   hours: [4,5,6,7]     },
-    { label: "8am–12pm",  hours: [8,9,10,11]   },
-    { label: "12pm–4pm",  hours: [12,13,14,15] },
-    { label: "4pm–8pm",   hours: [16,17,18,19] },
-    { label: "8pm–12am",  hours: [20,21,22,23] },
-  ];
 
   return (
     <div className="dash-page">
@@ -247,95 +409,191 @@ export default function Dashboard() {
             <p className="dash-subtitle">Overview of your restaurant operations</p>
           </div>
           <div className="dash-header-right">
-            <div className="dash-date">
-              {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            <div className="dash-right-date" aria-live="polite">
+              <p className="dash-right-date-main">{presentDateLabel}</p>
+              <p className="dash-right-date-sub">
+                {dayPhaseWish.message}
+                <span className="dash-right-date-symbol" aria-hidden="true">
+                  {dayPhaseWish.symbol}
+                </span>
+              </p>
             </div>
-            <button className={`dash-refresh-btn ${refreshing ? "spinning" : ""}`} onClick={() => fetchDashboard(true)} title="Refresh data">
-              <svg viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
-              </svg>
-            </button>
+            <div className="dash-header-actions">
+              <label className="dash-date-picker" onClick={openKpiDatePicker}>
+                <span
+                  className="dash-date-icon"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Open calendar"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openKpiDatePicker();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openKpiDatePicker();
+                    }
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+                    <rect x="3" y="5" width="18" height="16" rx="2"/>
+                    <line x1="16" y1="3" x2="16" y2="7"/>
+                    <line x1="8" y1="3" x2="8" y2="7"/>
+                    <line x1="3" y1="11" x2="21" y2="11"/>
+                  </svg>
+                </span>
+                <span className="dash-date-text">{kpiDateLabel || "Select date"}</span>
+                <span className="dash-date-caret">
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+                    <path d="M5 7l5 6 5-6H5z"/>
+                  </svg>
+                </span>
+                <input
+                  ref={kpiDateInputRef}
+                  type="date"
+                  value={kpiDate}
+                  onChange={(e) => setKpiDate(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className={`dash-refresh-btn ${refreshing ? "spinning" : ""}`}
+                onClick={() => fetchDashboard(true)}
+                title="Refresh data"
+                aria-label="Refresh dashboard data"
+                disabled={refreshing}
+              >
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* ── Stat Cards (all plans) ── */}
         <div className={`dash-cards ${animateCards ? "dash-cards--animate" : ""}`}>
           <StatCard
-            title="Total Orders Today" value={todayOrders.toLocaleString("en-IN")}
+            title="Total Orders" value={kpiOrdersCount.toLocaleString("en-IN")}
             icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>}
             iconColor="#3B82F6" iconBg="rgba(59,130,246,0.12)"
             change={`${totalOrders} orders all time`} positive={null} delay="0s"
-            sparkColor="#3B82F6" sparkData={[3,7,5,9,6,11,8,14,10,todayOrders||1]}
+            sparkColor="#3B82F6" sparkData={[3,7,5,9,6,11,8,14,10,kpiOrdersCount||1]}
           />
           <StatCard
-            title="Revenue Today" value={`₹${todayRevenue.toLocaleString("en-IN")}`}
+            title="Revenue" value={`₹${Math.round(kpiRevenue).toLocaleString("en-IN")}`}
             icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>}
             iconColor="#10B981" iconBg="rgba(16,185,129,0.12)"
             change={`₹${totalRevenue.toLocaleString("en-IN")} all time`} positive={null} delay="0.08s"
-            sparkColor="#10B981" sparkData={[5,8,6,12,9,15,11,17,13,todayRevenue>0?18:5]}
+            sparkColor="#10B981" sparkData={[5,8,6,12,9,15,11,17,13,kpiRevenue>0?18:5]}
           />
           <StatCard
-            title="Active Restaurants" value={totalRestaurants.toLocaleString("en-IN")}
+            title="Active Restaurants" value={kpiActiveRestaurants.toLocaleString("en-IN")}
             icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>}
             iconColor="#F59E0B" iconBg="rgba(245,158,11,0.12)"
-            change="In your network" positive={null} delay="0.16s"
-            sparkColor="#F59E0B" sparkData={[1,2,2,3,3,4,4,5,5,totalRestaurants||1]}
+            change="On selected date" positive={null} delay="0.16s"
+            sparkColor="#F59E0B" sparkData={[1,2,2,3,3,4,4,5,5,kpiActiveRestaurants||1]}
           />
           <StatCard
-            title="Avg. Order Value" value={avgOrderValue > 0 ? `₹${avgOrderValue.toLocaleString("en-IN")}` : "—"}
+            title="Avg. Order Value" value={kpiAvgOrderValue > 0 ? `₹${kpiAvgOrderValue.toLocaleString("en-IN")}` : "—"}
             icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>}
             iconColor="#8B5CF6" iconBg="rgba(139,92,246,0.12)"
-            change="Per order average" positive={null} delay="0.24s"
-            sparkColor="#8B5CF6" sparkData={[8,6,10,7,12,9,11,8,13,avgOrderValue>0?15:8]}
+            change="Selected date average" positive={null} delay="0.24s"
+            sparkColor="#8B5CF6" sparkData={[8,6,10,7,12,9,11,8,13,kpiAvgOrderValue>0?15:8]}
           />
         </div>
 
         {/* ── Charts — locked for Basic ── */}
         {isBasic ? (
           <>
-            <UpgradeBanner text="Upgrade to Pro or Premium to unlock Revenue & Orders charts" plan="Pro" />
+            <UpgradeBanner text="Upgrade to Pro or Premium to unlock the Revenue chart" plan="Pro" />
             <div className="dash-charts" style={{marginTop:16}}>
               <DashLocked title="Revenue Chart Locked" subtitle="Visual revenue trends over time" requiredPlan="Pro" />
-              <DashLocked title="Orders Chart Locked" subtitle="Daily/monthly order volume" requiredPlan="Pro" />
             </div>
           </>
         ) : (
           <>
-            <div className="dash-range-row">
-              <div className="dash-range-tabs">
-                {RANGES.map((r) => (
-                  <button key={r.value} className={`range-tab ${range === r.value ? "range-tab--active" : ""}`} onClick={() => setRange(r.value)}>
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-              {revenueData.length === 0 && <p className="dash-range-note">No order data yet for this period</p>}
-            </div>
             <div className="dash-charts">
               <div className="dash-chart-card">
                 <div className="chart-card-header">
                   <div>
                     <h3 className="chart-title">Revenue Overview</h3>
-                    <p className="chart-sub">Last {range === 365 ? "12 months" : `${range} days`}</p>
+                    <p className="chart-sub">
+                      {rangeStart === rangeEnd
+                        ? `Selected: ${formatShortDate(rangeStart)}`
+                        : `Selected: ${formatShortDate(rangeStart)} - ${formatShortDate(rangeEnd)}`}
+                    </p>
+                  </div>
+                  <div className="dash-range-picker chart-range-inline">
+                    <label className="dash-range-field">
+                      <span>From</span>
+                      <input
+                        type="date"
+                        value={rangeStart}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setRangeStart(next);
+                          if (rangeEnd && next > rangeEnd) setRangeEnd(next);
+                        }}
+                      />
+                    </label>
+                    <label className="dash-range-field">
+                      <span>To</span>
+                      <input
+                        type="date"
+                        value={rangeEnd}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setRangeEnd(next);
+                          if (rangeStart && next < rangeStart) setRangeStart(next);
+                        }}
+                      />
+                    </label>
                   </div>
                   {totalRevenue > 0 && <div className="chart-badge chart-badge--blue">₹{totalRevenue.toLocaleString("en-IN")} total</div>}
                 </div>
-                {revenueData.length > 0
-                  ? <LineChart data={revenueData.map(d => d.value || d.revenue || 0)} labels={revenueData.map(d => d.label || "")} color="#3B82F6" prefix="₹"/>
+                {filteredOrders.length === 0 && <p className="dash-range-note">No order data yet for this period</p>}
+                {filteredOrders.length > 0
+                  ? <LineChart data={rangeSeries.map(d => d.revenue || 0)} labels={rangeSeries.map(d => d.label || "")} color="#3B82F6" prefix="₹"/>
                   : <EmptyChart message="Place some orders to see revenue chart" />
                 }
               </div>
               <div className="dash-chart-card">
                 <div className="chart-card-header">
                   <div>
-                    <h3 className="chart-title">Orders</h3>
-                    <p className="chart-sub">Last {range === 365 ? "12 months" : `${range} days`}</p>
+                    <h3 className="chart-title">Monthly Revenue</h3>
+                    <p className="chart-sub">{phaseRangeLabel} {year}</p>
                   </div>
-                  {totalOrders > 0 && <div className="chart-badge chart-badge--teal">{totalOrders} total</div>}
+                  <div className="chart-actions">
+                    <div className="chart-phase">
+                      <button
+                        className={revenuePhase === "H1" ? "phase-btn phase-btn--active" : "phase-btn"}
+                        onClick={() => setRevenuePhase("H1")}
+                      >
+                        Phase 1
+                      </button>
+                      <button
+                        className={revenuePhase === "H2" ? "phase-btn phase-btn--active" : "phase-btn"}
+                        onClick={() => setRevenuePhase("H2")}
+                      >
+                        Phase 2
+                      </button>
+                    </div>
+                    <div className="chart-year">
+                      <label>Year</label>
+                      <select value={year} onChange={(e) => setYear(parseInt(e.target.value, 10))}>
+                        {yearOptions.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                {ordersData.length > 0
-                  ? <BarChart data={ordersData.map(d => d.value || d.orders || 0)} labels={ordersData.map(d => d.label || "")} color="#2DD4BF"/>
-                  : <EmptyChart message="Place some orders to see orders chart" />
+                {hasPhaseRevenue
+                  ? <BarChart data={phaseData} labels={phaseLabels} color="#F59E0B" prefix="₹" showValues />
+                  : <EmptyChart message="No revenue for this phase" />
                 }
               </div>
             </div>
@@ -344,62 +602,31 @@ export default function Dashboard() {
 
         {/* ── Two Panels ── */}
         <div className="dash-panels">
-          {/* Peak Hours */}
+          {/* Weekly Revenue */}
           <div className="panel-card">
             <div className="panel-header">
               <div>
-                <h3 className="panel-title">Peak Order Hours</h3>
-                <p className="panel-sub">When your restaurants are busiest</p>
+                <h3 className="panel-title">Weekly Revenue</h3>
+                <p className="panel-sub">Weeks in {formatMonthYear(monthInput)}</p>
               </div>
-              <div className="panel-icon" style={{ color: "#3B82F6", background: "rgba(59,130,246,0.1)" }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="18" height="18"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <div className="panel-month">
+                <label>Month</label>
+                <input
+                  type="month"
+                  value={monthInput}
+                  onChange={(e) => setMonthInput(e.target.value)}
+                />
               </div>
             </div>
             {isBasic ? (
-              <DashLocked title="Peak Hours Locked" subtitle="See when orders peak by hour" requiredPlan="Pro" />
-            ) : allOrders.length === 0 ? (
+              <DashLocked title="Weekly Revenue Locked" subtitle="See revenue by week within a month" requiredPlan="Pro" />
+            ) : !hasWeeklyRevenue ? (
               <div className="panel-empty">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="36" height="36" style={{color:"#1C2A42"}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <p>No orders yet</p>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="36" height="36" style={{color:"#1C2A42"}}><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                <p>No revenue for this month</p>
               </div>
             ) : (
-              <div className="heatmap-wrap">
-                <div className="heatmap-hours">
-                  {Array.from({length:24},(_,h)=>(
-                    <div key={h} className="heatmap-hour-lbl">
-                      {h===0?"12a":h<12?`${h}a`:h===12?"12p":`${h-12}p`}
-                    </div>
-                  ))}
-                </div>
-                <div className="heatmap-cells">
-                  {hourCounts.map((count,h)=>{
-                    const intensity = count/maxHourCount;
-                    return (
-                      <div key={h} className="heatmap-cell" title={`${h}:00 — ${count} orders`}
-                        style={{
-                          background: count===0 ? "rgba(59,130,246,0.04)" : `rgba(59,130,246,${0.12 + intensity*0.75})`,
-                          borderColor: intensity>0.6 ? "rgba(59,130,246,0.4)" : "transparent",
-                        }}>
-                        {count>0 && <span className="heatmap-count">{count}</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="heatmap-blocks">
-                  {hourBlocks.map((b,i)=>(
-                    <div key={i} className="heatmap-block-lbl">{b.label}</div>
-                  ))}
-                </div>
-                <div className="heatmap-legend">
-                  <span className="legend-lbl">Low</span>
-                  <div className="legend-bar">
-                    {[0.04,0.12,0.25,0.38,0.52,0.65,0.78,0.9].map((op,i)=>(
-                      <div key={i} className="legend-seg" style={{background:`rgba(59,130,246,${op})`}}/>
-                    ))}
-                  </div>
-                  <span className="legend-lbl">Peak</span>
-                </div>
-              </div>
+              <BarChart data={weeklyRevenue} labels={weeklyLabels} color="#10B981" prefix="₹" showValues />
             )}
           </div>
 
@@ -424,13 +651,19 @@ export default function Dashboard() {
             ) : (
               <div className="top3-wrap">
                 {topRestaurants.slice(0,3).map((r,i)=>{
-                  const medals = [{c:"#F59E0B",label:"1st"},{c:"#8896B3",label:"2nd"},{c:"#CD7C3A",label:"3rd"}];
                   const gradients = ["linear-gradient(90deg,#F59E0B,#FCD34D)","linear-gradient(90deg,#3B82F6,#60A5FA)","linear-gradient(90deg,#10B981,#34D399)"];
                   const barPct = maxRevenue>0 ? (r.revenue/maxRevenue)*100 : 0;
+                  const medalTone = i === 0 ? "top3-medal--gold" : i === 1 ? "top3-medal--silver" : "top3-medal--bronze";
                   return (
                     <div key={r.id} className={`top3-row ${i===0?"top3-row--gold":""}`}>
-                      <div className="top3-medal" style={{color:medals[i].c,borderColor:`${medals[i].c}30`,background:`${medals[i].c}10`}}>
-                        {i===0 ? <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> : medals[i].label}
+                      <div className={`top3-medal ${medalTone}`}>
+                        <svg className="top3-medal-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path d="M8 2h3l1 5H9z" fill="currentColor" opacity="0.8" />
+                          <path d="M13 2h3l-1 5h-3z" fill="currentColor" opacity="0.6" />
+                          <circle cx="12" cy="14" r="6" fill="currentColor" opacity="0.22" />
+                          <circle cx="12" cy="14" r="4.4" fill="currentColor" opacity="0.35" />
+                        </svg>
+                        <span className="top3-medal-rank">{i + 1}</span>
                       </div>
                       <div className="top3-info">
                         <div className="top3-nameline">
@@ -599,6 +832,10 @@ function LineChart({ data, labels, color, prefix = "" }) {
   const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p[0]},${p[1]}`).join(" ");
   const areaD = `${pathD} L ${pts[pts.length-1][0]},${padT + iH} L ${pts[0][0]},${padT + iH} Z`;
   const fmt = (v) => prefix ? `${prefix}${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}` : (v >= 1000 ? `${(v/1000).toFixed(0)}k` : v);
+  const fmtValue = (v) => {
+    const rounded = Math.round(v || 0);
+    return prefix ? `${prefix}${rounded.toLocaleString("en-IN")}` : rounded.toLocaleString("en-IN");
+  };
   const ticks = [0, 0.5, 1].map(t => ({ val: min + t * range, y: padT + (1 - t) * iH }));
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
@@ -618,9 +855,15 @@ function LineChart({ data, labels, color, prefix = "" }) {
       <path d={pathD} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
       {pts.map(([x, y], i) => {
         const show = data.length <= 10 || i % Math.ceil(data.length / 7) === 0 || i === data.length - 1;
+        const valueY = Math.max(y - 8, padT + 8);
         return (
           <g key={i}>
             {show && <circle cx={x} cy={y} r="3.5" fill={color} stroke="#141414" strokeWidth="1.5"/>}
+            {show && (
+              <text x={x} y={valueY} textAnchor="middle" fill="#7A8BA8" fontSize="10" fontWeight="600">
+                {fmtValue(data[i])}
+              </text>
+            )}
             {show && <text x={x} y={H-8} textAnchor="middle" fill="#444" fontSize="10">{labels[i]}</text>}
           </g>
         );
@@ -629,13 +872,29 @@ function LineChart({ data, labels, color, prefix = "" }) {
   );
 }
 
-function BarChart({ data, labels, color }) {
+function BarChart({ data, labels, color, prefix = "", showValues = false }) {
   if (!data || data.length === 0) return <EmptyChart message="No data" />;
   const max = Math.max(...data) || 1;
-  const W = 500, H = 170, padL = 36, padR = 12, padT = 10, padB = 30;
+  const W = 500, H = 170, padL = 36, padR = 12, padT = showValues ? 18 : 10, padB = 30;
   const iW = W - padL - padR; const iH = H - padT - padB;
   const barW = (iW / data.length) * 0.6;
   const gap  = iW / data.length;
+  const compactFormatter = (() => {
+    try {
+      return new Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 });
+    } catch {
+      return null;
+    }
+  })();
+  const fmtValueFull = (v) => {
+    const rounded = Math.round(v || 0);
+    return prefix ? `${prefix}${rounded.toLocaleString("en-IN")}` : rounded.toLocaleString("en-IN");
+  };
+  const fmtValue = (v) => {
+    const value = Math.round(v || 0);
+    const compact = compactFormatter ? compactFormatter.format(value) : value.toString();
+    return prefix ? `${prefix}${compact}` : compact;
+  };
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
       {[0, 0.5, 1].map((t, i) => {
@@ -653,9 +912,27 @@ function BarChart({ data, labels, color }) {
         const x  = padL + i * gap + (gap - barW) / 2;
         const y  = padT + iH - bh;
         const show = data.length <= 10 || i % Math.ceil(data.length / 7) === 0 || i === data.length - 1;
+        const showValue = showValues && v > 0;
         return (
           <g key={i}>
-            <rect x={x} y={y} width={barW} height={bh} fill={color} rx="4" opacity="0.85"/>
+            <rect x={x} y={y} width={barW} height={bh} fill={color} rx="4" opacity="0.85" title={fmtValueFull(v)} />
+            {showValue && (
+              <text
+                x={x + barW/2}
+                y={Math.max(y - 6, padT + 10)}
+                textAnchor="middle"
+                fill="#F8FAFC"
+                fontSize="9"
+                fontWeight="700"
+                paintOrder="stroke"
+                stroke="#0A0A0A"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                {fmtValue(v)}
+              </text>
+            )}
             {show && <text x={x + barW/2} y={H-8} textAnchor="middle" fill="#444" fontSize="10">{labels[i]}</text>}
           </g>
         );

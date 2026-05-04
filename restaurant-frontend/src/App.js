@@ -18,6 +18,19 @@ function App() {
   const [hasSubscription, setHasSubscription] = useState(false);
   const [checking,        setChecking]        = useState(true);
 
+  const isSubscriptionActive = (sub) => {
+    if (!sub || sub.status !== "active") return false;
+    if (!sub.end_date) return false;
+
+    const end = new Date(sub.end_date);
+    if (Number.isNaN(end.getTime())) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    return end >= today;
+  };
+
   /* ================= INITIAL AUTH CHECK ================= */
   useEffect(() => {
     const storedToken = localStorage.getItem("token");
@@ -75,11 +88,7 @@ function App() {
 
       const data = await res.json();
 
-      if (
-        data.status === "success" &&
-        data.data &&
-        data.data.status === "active"
-      ) {
+      if (data.status === "success" && isSubscriptionActive(data.data)) {
         setHasSubscription(true);
       } else {
         setHasSubscription(false);
@@ -128,7 +137,11 @@ function App() {
     if (!token) return <Navigate to="/login" replace />;
     if (userRole === "admin") return <Navigate to="/admin-dashboard" replace />;
     if (!hasSubscription) return <Navigate to="/subscription" replace />;
-    return <MainLayout onLogout={performLogout}>{children}</MainLayout>;
+    return (
+      <MainLayout onLogout={performLogout} subscriptionLocked={false}>
+        {children}
+      </MainLayout>
+    );
   };
 
   return (
@@ -162,8 +175,8 @@ function App() {
               userRole === "admin" ? (
                 <Navigate to="/admin-dashboard" replace />
               ) : (
-                <MainLayout onLogout={performLogout}>
-                  <Subscription />
+                <MainLayout onLogout={performLogout} subscriptionLocked={!hasSubscription}>
+                  <Subscription subscriptionLocked={!hasSubscription} />
                 </MainLayout>
               )
             ) : (

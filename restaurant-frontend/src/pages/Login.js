@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import heroFood from "../assets/saas-restrostack.png";
 import "./Login.css";
 
 export default function Login() {
@@ -133,40 +134,14 @@ export default function Login() {
       <div className="login-content">
 
         {/* ── LEFT SIDE ── */}
-        <div className="login-branding">
-          <div className="brand-content">
-            <div className="brand-logo">
-              <div className="logo-icon">🍽️</div>
-              <h1 className="brand-title">Restaurant SaaS</h1>
-            </div>
-            <h2 className="brand-headline">Manage Your Restaurant Empire</h2>
-            <p className="brand-description">
-              Take control of your restaurant operations with our powerful
-              management platform. Track orders, manage inventory, and scale
-              your business effortlessly.
-            </p>
-            <div className="features-list">
-              <div className="feature-item">
-                <div className="feature-icon">⚡</div>
-                <div><h4>Lightning Fast</h4><p>Real-time order processing</p></div>
-              </div>
-              <div className="feature-item">
-                <div className="feature-icon">🔒</div>
-                <div><h4>Secure & Reliable</h4><p>Enterprise-grade security</p></div>
-              </div>
-              <div className="feature-item">
-                <div className="feature-icon">📊</div>
-                <div><h4>Advanced Analytics</h4><p>Data-driven insights</p></div>
-              </div>
-            </div>
-            <div className="restaurant-image">
-              <div className="image-placeholder">
-                <div className="image-icon">🏪</div>
-                <div className="image-text">
-                  <h3>Join 1000+ Restaurants</h3>
-                  <p>Managing their business with us</p>
-                </div>
-              </div>
+        <div className="login-branding login-branding--image">
+          <div className="brand-content brand-content--image">
+            <div className="hero-frame">
+              <img
+                src={heroFood}
+                alt="Restaurant food spread"
+                className="hero-image-full"
+              />
             </div>
           </div>
         </div>
@@ -177,6 +152,10 @@ export default function Login() {
 
             {!showSignUp ? (
               <>
+                <div className="form-brand">
+                  <span className="form-logo-icon" aria-hidden="true">🍽️</span>
+                  <span className="form-brand-text">Restro-Stack</span>
+                </div>
                 <div className="form-header">
                   <h2 className="form-title">Welcome Back</h2>
                   <p className="form-subtitle">Sign in to continue to your dashboard</p>
@@ -200,7 +179,12 @@ export default function Login() {
                   <div className="form-group">
                     <label className="form-label">Email Address</label>
                     <div className="input-wrapper">
-                      <span className="input-icon">📧</span>
+                      <span className="input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <path d="M3 7l9 6 9-6" />
+                        </svg>
+                      </span>
                       <input
                         type="email"
                         placeholder="Email"
@@ -215,7 +199,12 @@ export default function Login() {
                   <div className="form-group">
                     <label className="form-label">Password</label>
                     <div className="input-wrapper">
-                      <span className="input-icon">🔒</span>
+                      <span className="input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="11" width="16" height="9" rx="2" />
+                          <path d="M8 11V7a4 4 0 018 0v4" />
+                        </svg>
+                      </span>
                       <input
                         type={showPassword ? "text" : "password"}
                         placeholder="Password"
@@ -229,7 +218,18 @@ export default function Login() {
                         className="password-toggle"
                         onClick={() => setShowPassword(!showPassword)}
                       >
-                        {showPassword ? "👁️" : "👁️‍🗨️"}
+                        {showPassword ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z" />
+                            <circle cx="12" cy="12" r="3" />
+                            <line x1="3" y1="3" x2="21" y2="21" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -278,6 +278,10 @@ export default function Login() {
               </>
             ) : (
               <>
+                <div className="form-brand">
+                  <span className="form-logo-icon" aria-hidden="true">🍽️</span>
+                  <span className="form-brand-text">Restaurant SaaS</span>
+                </div>
                 <div className="form-header">
                   <h2 className="form-title">Create Account</h2>
                   <p className="form-subtitle">Join and start managing your restaurant</p>
@@ -293,7 +297,12 @@ export default function Login() {
                   <div className="form-group">
                     <label className="form-label">Full Name</label>
                     <div className="input-wrapper">
-                      <span className="input-icon">👤</span>
+                      <span className="input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="8" r="4" />
+                          <path d="M4 20c2.5-4 13.5-4 16 0" />
+                        </svg>
+                      </span>
                       <input type="text" placeholder="Enter your name" value={signUpData.name}
                         onChange={(e) => setSignUpData({ ...signUpData, name: e.target.value })}
                         className="form-input" required />
@@ -302,7 +311,12 @@ export default function Login() {
                   <div className="form-group">
                     <label className="form-label">Email Address</label>
                     <div className="input-wrapper">
-                      <span className="input-icon">📧</span>
+                      <span className="input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <path d="M3 7l9 6 9-6" />
+                        </svg>
+                      </span>
                       <input type="email" placeholder="Enter your email" value={signUpData.email}
                         onChange={(e) => setSignUpData({ ...signUpData, email: e.target.value })}
                         className="form-input" required />
@@ -311,20 +325,42 @@ export default function Login() {
                   <div className="form-group">
                     <label className="form-label">Password</label>
                     <div className="input-wrapper">
-                      <span className="input-icon">🔒</span>
+                      <span className="input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="11" width="16" height="9" rx="2" />
+                          <path d="M8 11V7a4 4 0 018 0v4" />
+                        </svg>
+                      </span>
                       <input type={showPassword ? "text" : "password"} placeholder="Create a password"
                         value={signUpData.password}
                         onChange={(e) => setSignUpData({ ...signUpData, password: e.target.value })}
                         className="form-input" required />
                       <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)}>
-                        {showPassword ? "👁️" : "👁️‍🗨️"}
+                        {showPassword ? (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z" />
+                            <circle cx="12" cy="12" r="3" />
+                            <line x1="3" y1="3" x2="21" y2="21" />
+                          </svg>
+                        )}
                       </button>
                     </div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Confirm Password</label>
                     <div className="input-wrapper">
-                      <span className="input-icon">🔐</span>
+                      <span className="input-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="4" y="11" width="16" height="9" rx="2" />
+                          <path d="M8 11V7a4 4 0 018 0v4" />
+                          <circle cx="12" cy="15.5" r="1.2" fill="currentColor" stroke="none" />
+                        </svg>
+                      </span>
                       <input type={showPassword ? "text" : "password"} placeholder="Confirm your password"
                         value={signUpData.confirmPassword}
                         onChange={(e) => setSignUpData({ ...signUpData, confirmPassword: e.target.value })}

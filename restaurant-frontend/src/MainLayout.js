@@ -3,7 +3,7 @@ import Sidebar from "./layout/Sidebar";
 import Topbar from "./layout/Topbar";
 import "./MainLayout.css";
 
-function MainLayout({ children, onLogout }) {
+function MainLayout({ children, onLogout, subscriptionLocked = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
@@ -27,7 +27,7 @@ function MainLayout({ children, onLogout }) {
     <div className="main-layout">
 
       {/* ── Sidebar ── */}
-      <Sidebar isOpen={sidebarOpen} onLogout={onLogout} />
+      <Sidebar isOpen={sidebarOpen} onLogout={onLogout} subscriptionLocked={subscriptionLocked} />
 
       {/* ── Mobile overlay ── */}
       {sidebarOpen && isMobile && (
@@ -38,7 +38,7 @@ function MainLayout({ children, onLogout }) {
       <div className={`main-content ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
 
         {/* Topbar */}
-        <Topbar onToggleSidebar={toggleSidebar} />
+        <Topbar onToggleSidebar={toggleSidebar} sidebarOpen={sidebarOpen} />
 
         {/* Page content */}
         <div className="page-content">

@@ -118,6 +118,31 @@
   flex-shrink: 0;
 }
 
+.sub-lock-notice {
+  margin: 8px 12px 10px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.24);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sub-lock-notice-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #93C5FD;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.sub-lock-notice-text {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #CBD5E1;
+}
+
 /* ── NAV ── */
 .sidebar-nav {
   flex: 1;
@@ -188,6 +213,17 @@
 
 .nav-link.active .nav-text {
   font-weight: 500;
+}
+
+.nav-link-locked {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.subscription-locked .nav-link-locked:hover {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 /* ── BOTTOM ── */

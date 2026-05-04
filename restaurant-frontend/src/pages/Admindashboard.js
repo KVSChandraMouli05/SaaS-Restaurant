@@ -1,28 +1,188 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./Admindashboard.css";
 
-const PLAN_COLORS = {
-  Trial:      "#6B7280",
-  Basic:      "#10B981",
-  Pro:        "#3B82F6",
-  Business:   "#F59E0B",
-  Premium:    "#8B5CF6",
-  Enterprise: "#EC4899",
+const API = "http://localhost:5000";
+const ENV_LABEL = "Production";
+
+const fmtNumber = (n) => Number(n || 0).toLocaleString("en-IN");
+const fmtMoney = (n) => `₹${fmtNumber(n)}`;
+const safePct = (num, den) => (den > 0 ? Math.round((num / den) * 100) : 0);
+const toDateInput = (value) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
 };
+const todayInput = () => toDateInput(new Date());
+const daysAgoInput = (days) => toDateInput(new Date(Date.now() - days * 86400000));
+const normalizePlan = (plan) => {
+  const raw = (plan || "").toString().trim();
+  if (!raw) return "Unknown";
+  const key = raw.toLowerCase();
+  if (key === "free") return "Basic";
+  if (key === "basic") return "Basic";
+  if (key === "pro") return "Pro";
+  if (key === "premium") return "Premium";
+  if (key === "trial") return "Trial";
+  return raw;
+};
+const planTone = (plan) => {
+  const key = (plan || "").toLowerCase();
+  if (key === "basic") return "basic";
+  if (key === "pro") return "pro";
+  if (key === "premium") return "premium";
+  if (key === "trial") return "trial";
+  return "unknown";
+};
+const PLAN_ORDER = ["Basic", "Pro", "Premium", "Trial", "Unknown"];
 
 export default function AdminDashboard() {
-  const [stats,      setStats]      = useState(null);
-  const [users,      setUsers]      = useState([]);
-  const [loading,    setLoading]    = useState(true);
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showLogout, setShowLogout] = useState(false);
-  const [search,     setSearch]     = useState("");
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
   const [planFilter, setPlanFilter] = useState("all");
-  const token    = localStorage.getItem("token");
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [rangeStart, setRangeStart] = useState(daysAgoInput(29));
+  const [rangeEnd, setRangeEnd] = useState(todayInput());
+  const [revenueReport, setRevenueReport] = useState({
+    range: { start: "", end: "" },
+    summary: { total_revenue: 0, total_orders: 0 },
+    series: [],
+    plan_revenue: [],
+  });
+  const [planStats, setPlanStats] = useState({
+    total_revenue: 0,
+    plans: [],
+  });
+  const [planStatsLoading, setPlanStatsLoading] = useState(false);
+  const [planStatsError, setPlanStatsError] = useState(null);
+  const [revenueLoading, setRevenueLoading] = useState(false);
+  const [revenueError, setRevenueError] = useState(null);
+  const token = localStorage.getItem("token");
+
+  const loadAll = async () => {
+    setLoading(true);
+    await Promise.all([fetchAdminStats(), fetchAllUsers(), fetchPlanStats()]);
+    setLastUpdated(new Date());
+    setLoading(false);
+  };
 
   useEffect(() => {
-    fetchAdminStats();
-    fetchAllUsers();
+    loadAll();
   }, []);
+
+  useEffect(() => {
+    fetchRevenueReport();
+  }, [rangeStart, rangeEnd]);
+
+  const fetchAdminStats = async () => {
+    try {
+      const res = await fetch(`${API}/api/admin/platform-stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.status === "success") setStats(data.data);
+      else if (res.status === 403) window.location.href = "/login";
+    } catch {
+      window.location.href = "/login";
+    }
+  };
+
+  const fetchAllUsers = async () => {
+    try {
+      const res = await fetch(`${API}/api/admin/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        const list = Array.isArray(data.data) ? data.data : [];
+        const normalized = list.map((u) => ({
+          ...u,
+          plan: normalizePlan(u.plan || u.plan_name || u.subscription_plan),
+        }));
+        setUsers(normalized);
+      }
+    } catch {
+      setUsers([]);
+    }
+  };
+
+  const fetchRevenueReport = async () => {
+    if (!rangeStart || !rangeEnd) return;
+    setRevenueLoading(true);
+    setRevenueError(null);
+    try {
+      const res = await fetch(
+        `${API}/api/admin/revenue-report?start=${rangeStart}&end=${rangeEnd}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok || data?.status !== "success") {
+        if (res.status === 403) {
+          window.location.href = "/login";
+          return;
+        }
+        setRevenueError(data?.message || "Failed to load revenue data");
+        return;
+      }
+      if (data.status === "success") {
+        setRevenueReport({
+          range: data.data?.range || { start: rangeStart, end: rangeEnd },
+          summary: data.data?.summary || { total_revenue: 0, total_orders: 0 },
+          series: Array.isArray(data.data?.series) ? data.data.series : [],
+          plan_revenue: Array.isArray(data.data?.plan_revenue)
+            ? data.data.plan_revenue
+            : [],
+        });
+      }
+    } catch {
+      setRevenueError("Failed to load revenue data");
+    } finally {
+      setRevenueLoading(false);
+    }
+  };
+
+  const fetchPlanStats = async () => {
+    setPlanStatsLoading(true);
+    setPlanStatsError(null);
+    try {
+      const res = await fetch(`${API}/api/admin/plan-stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok || data?.status !== "success") {
+        if (res.status === 403) {
+          window.location.href = "/login";
+          return;
+        }
+        setPlanStatsError(data?.message || "Failed to load plan stats");
+        setPlanStats({ total_revenue: 0, plans: [] });
+        return;
+      }
+      setPlanStats({
+        total_revenue: parseFloat(data.data?.total_revenue || 0),
+        plans: Array.isArray(data.data?.plans) ? data.data.plans : [],
+      });
+    } catch {
+      setPlanStatsError("Failed to load plan stats");
+      setPlanStats({ total_revenue: 0, plans: [] });
+    } finally {
+      setPlanStatsLoading(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -30,381 +190,763 @@ export default function AdminDashboard() {
     window.location.href = "/login";
   };
 
-  const fetchAdminStats = async () => {
-    try {
-      const res  = await fetch("http://localhost:5000/api/admin/platform-stats", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.status === "success") setStats(data.data);
-      else if (res.status === 403) { window.location.href = "/login"; }
-    } catch { window.location.href = "/login"; }
-    finally { setLoading(false); }
+  const exportUsers = () => {
+    if (!users.length) return;
+    const headers = ["id", "name", "email", "role", "plan"];
+    const rows = users.map((u) => [
+      u.id,
+      u.name || "",
+      u.email || "",
+      u.role || "",
+      u.plan || "",
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((val) => `"${String(val).replace(/"/g, '""')}"`)
+          .join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `users-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
-  const fetchAllUsers = async () => {
-    try {
-      const res  = await fetch("http://localhost:5000/api/admin/users", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.status === "success") setUsers(Array.isArray(data.data) ? data.data : []);
-    } catch {}
-  };
+  const totalUsers = stats?.total_users ?? users.length;
+  const totalRestaurants = stats?.total_restaurants ?? 0;
+  const adminCount = users.filter((u) => u.role === "admin").length;
+  const ownerCount = Math.max(0, totalUsers - adminCount);
 
-  // Filtered users
-  const filteredUsers = users.filter(u => {
-    const matchSearch = search === "" ||
+  const planStatsRows = useMemo(() => {
+    const list = Array.isArray(planStats?.plans) ? planStats.plans : [];
+    return list.map((row) => {
+      const label = normalizePlan(row.plan_name || row.name || row.plan);
+      return {
+        id: row.id,
+        label,
+        price: parseFloat(row.price || 0),
+        restaurant_limit: row.restaurant_limit,
+        features: row.features,
+        active_users: parseInt(row.active_users || 0),
+        revenue: parseFloat(row.revenue || 0),
+        tone: planTone(label),
+      };
+    });
+  }, [planStats]);
+
+  const planStatsOrdered = useMemo(() => {
+    const orderMap = PLAN_ORDER.reduce((acc, label, idx) => {
+      acc[label.toLowerCase()] = idx;
+      return acc;
+    }, {});
+    return [...planStatsRows].sort((a, b) => {
+      const aIdx = orderMap[a.label.toLowerCase()];
+      const bIdx = orderMap[b.label.toLowerCase()];
+      if (aIdx !== undefined && bIdx !== undefined) return aIdx - bIdx;
+      if (aIdx !== undefined) return -1;
+      if (bIdx !== undefined) return 1;
+      return a.label.localeCompare(b.label);
+    });
+  }, [planStatsRows]);
+
+  const planRevenue = useMemo(() => {
+    return planStatsOrdered.map((row) => ({
+      label: row.label,
+      revenue: row.revenue,
+      users: row.active_users,
+      tone: row.tone,
+    }));
+  }, [planStatsOrdered]);
+
+  const planRevenueTotal = planRevenue.reduce((sum, p) => sum + p.revenue, 0);
+  const subscriptionRevenue = planStats?.total_revenue ?? planRevenueTotal;
+  const restaurantsPerOwner = ownerCount > 0 ? totalRestaurants / ownerCount : 0;
+  const revenuePerRestaurant =
+    totalRestaurants > 0 ? subscriptionRevenue / totalRestaurants : 0;
+  const revenuePerOwner =
+    ownerCount > 0 ? subscriptionRevenue / ownerCount : 0;
+
+  const roleMix = useMemo(() => {
+    const ownerPct = safePct(ownerCount, totalUsers);
+    const adminPct = safePct(adminCount, totalUsers);
+    return [
+      { label: "Owners", count: ownerCount, pct: ownerPct, tone: "owner" },
+      { label: "Admins", count: adminCount, pct: adminPct, tone: "admin" },
+    ];
+  }, [ownerCount, adminCount, totalUsers]);
+
+  const filteredUsers = users.filter((u) => {
+    const matchSearch =
+      search === "" ||
       u.name?.toLowerCase().includes(search.toLowerCase()) ||
       u.email?.toLowerCase().includes(search.toLowerCase());
-    const matchPlan = planFilter === "all" || u.plan_name?.toLowerCase() === planFilter;
-    return matchSearch && matchPlan;
+    const matchRole =
+      roleFilter === "all" ||
+      (roleFilter === "owner" && u.role !== "admin") ||
+      (roleFilter === "admin" && u.role === "admin");
+    const planName = normalizePlan(u.plan || u.plan_name || u.subscription_plan);
+    const matchPlan =
+      planFilter === "all" || planName.toLowerCase() === planFilter;
+    return matchSearch && matchRole && matchPlan;
   });
 
-  const uniquePlans = [...new Set(users.map(u => u.plan_name).filter(Boolean))];
+  const recentUsers = useMemo(() => {
+    return [...users]
+      .sort((a, b) => (b.id || 0) - (a.id || 0))
+      .slice(0, 6);
+  }, [users]);
 
-  if (loading) return (
-    <div className="adm-page">
-      <div className="adm-center">
-        <div className="adm-spinner" />
-        <p>Loading admin panel...</p>
-      </div>
-    </div>
+  const kpis = [
+    {
+      label: "Total Users",
+      value: fmtNumber(totalUsers),
+      note: "All tenant accounts",
+      tone: "blue",
+    },
+    {
+      label: "Owners",
+      value: fmtNumber(ownerCount),
+      note: "Active operators",
+      tone: "teal",
+    },
+    {
+      label: "Subscription Revenue",
+      value: fmtMoney(subscriptionRevenue),
+      note: "Active plans",
+      tone: "green",
+    },
+    {
+      label: "Range Revenue",
+      value: fmtMoney(revenueReport.summary?.total_revenue || 0),
+      note: "Selected dates",
+      tone: "purple",
+    },
+    {
+      label: "Restaurants",
+      value: fmtNumber(totalRestaurants),
+      note: "Total locations",
+      tone: "amber",
+    },
+    {
+      label: "Revenue per Restaurant",
+      value: fmtMoney(revenuePerRestaurant),
+      note: "Average across network",
+      tone: "teal",
+    },
+  ];
+
+  const planCounts = useMemo(() => {
+    return planRevenue.map((p) => ({
+      label: p.label,
+      count: p.users,
+      tone: p.tone,
+    }));
+  }, [planRevenue]);
+
+  const planRevenueMax = Math.max(
+    ...planRevenue.map((p) => p.revenue),
+    1
   );
 
-  if (!stats) return (
-    <div className="adm-page">
-      <div className="adm-center">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="1.5" width="48" height="48">
-          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <p style={{color:"#EF4444",fontWeight:700,fontSize:18}}>Access Denied</p>
-        <p style={{color:"#4A5568"}}>Admin privileges required</p>
-        <button className="adm-btn adm-btn--blue" onClick={() => window.location.href = "/login"}>Go to Dashboard</button>
-      </div>
-    </div>
-  );
+  const seriesData = (revenueReport.series || []).map((row) => ({
+    date: row.date,
+    revenue: parseFloat(row.revenue || 0),
+  }));
+  const seriesMax = Math.max(...seriesData.map((s) => s.revenue), 1);
+  const rangeDays = (() => {
+    if (!rangeStart || !rangeEnd) return 0;
+    const start = new Date(rangeStart);
+    const end = new Date(rangeEnd);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    return Math.max(1, Math.round((end - start) / 86400000) + 1);
+  })();
+  const avgDailyRevenue =
+    rangeDays > 0 ? (revenueReport.summary?.total_revenue || 0) / rangeDays : 0;
+  const chartLabels = seriesData.filter((_, i) => {
+    const step = Math.max(1, Math.floor(seriesData.length / 6));
+    return i % step === 0;
+  });
 
-  const activeSubs  = (stats.total_users || 0) - (stats.trial_users || 0);
-  const totalRev    = parseFloat(stats.total_revenue || 0);
-  const maxPlanRev  = stats.revenue_by_plan?.length
-    ? Math.max(...stats.revenue_by_plan.map(p => parseFloat(p.revenue || 0)), 1)
-    : 1;
+  const health = [
+    {
+      label: "API",
+      status: stats ? "Operational" : "Degraded",
+      detail: stats ? "Stats endpoint OK" : "Stats unavailable",
+      tone: stats ? "ok" : "warn",
+    },
+    {
+      label: "Database",
+      status: stats ? "Operational" : "Unknown",
+      detail: stats ? "Queries responding" : "No signal",
+      tone: stats ? "ok" : "muted",
+    },
+    {
+      label: "Billing",
+      status: "Not integrated",
+      detail: "Manual upgrades",
+      tone: "muted",
+    },
+    {
+      label: "Notifications",
+      status: "Not configured",
+      detail: "Email/SMS pending",
+      tone: "muted",
+    },
+  ];
+
+  if (loading) {
+    return (
+      <div className="adm-page">
+        <div className="adm-center">
+          <div className="adm-spinner" />
+          <p>Loading admin console...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stats && users.length === 0) {
+    return (
+      <div className="adm-page">
+        <div className="adm-center">
+          <p className="adm-error-title">Access denied</p>
+          <p className="adm-error-sub">Admin privileges required.</p>
+          <button className="adm-btn adm-btn--primary" onClick={handleLogout}>
+            Go to login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="adm-page">
-
-      {/* ══ LOGOUT CONFIRM OVERLAY ══ */}
       {showLogout && (
         <div className="adm-overlay" onClick={() => setShowLogout(false)}>
-          <div className="adm-modal" onClick={e => e.stopPropagation()}>
-            <div className="adm-modal-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="28" height="28">
-                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-            </div>
-            <h3>Sign out of Admin Panel?</h3>
-            <p>You'll be redirected to the login page.</p>
+          <div className="adm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="adm-modal-icon" />
+            <h3>Sign out of Admin Console?</h3>
+            <p>You will be redirected to the login page.</p>
             <div className="adm-modal-actions">
-              <button className="adm-btn adm-btn--ghost" onClick={() => setShowLogout(false)}>Cancel</button>
-              <button className="adm-btn adm-btn--danger" onClick={handleLogout}>Yes, Sign Out</button>
+              <button
+                className="adm-btn adm-btn--ghost"
+                onClick={() => setShowLogout(false)}
+              >
+                Cancel
+              </button>
+              <button className="adm-btn adm-btn--danger" onClick={handleLogout}>
+                Sign Out
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="adm-inner">
-
-        {/* ══ HEADER ══ */}
-        <header className="adm-header">
-          <div className="adm-header-left">
-            <div className="adm-crown-badge">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                <path d="M2 19h20v2H2v-2zM2 5l5 7.5L12 3l5 9.5L22 5v12H2V5z"/>
-              </svg>
-              Super Admin
+      <div className="adm-shell">
+        <header className="adm-topbar">
+          <div className="adm-brand">
+            <div className="adm-brand-mark">MS</div>
+            <div>
+              <div className="adm-brand-kicker">Admin Command Center</div>
+              <h1 className="adm-brand-title">Restaurant SaaS Control Tower</h1>
+              <p className="adm-brand-sub">
+                Monitor tenants, revenue, and operational health from one place.
+              </p>
             </div>
-            <h1 className="adm-title">Admin Dashboard</h1>
-            <p className="adm-subtitle">Platform-wide SaaS analytics & user management</p>
           </div>
-          <div className="adm-header-right">
-            <div className="adm-live-badge">
-              <span className="adm-live-dot" />
-              Live
+          <div className="adm-top-actions">
+            <div className="adm-meta">
+              <span className="adm-meta-chip">Environment: {ENV_LABEL}</span>
+              <span className="adm-meta-chip">
+                Last updated:{" "}
+                {lastUpdated
+                  ? lastUpdated.toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "Unknown"}
+              </span>
             </div>
-            <button className="adm-signout-btn" onClick={() => setShowLogout(true)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="15" height="15">
-                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
-                <polyline points="16 17 21 12 16 7"/>
-                <line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-              Sign Out
-            </button>
+            <div className="adm-action-row">
+              <button
+                className="adm-btn adm-btn--ghost"
+                onClick={() => {
+                  loadAll();
+                  fetchRevenueReport();
+                }}
+              >
+                Refresh
+              </button>
+              <button
+                className="adm-btn adm-btn--ghost"
+                onClick={exportUsers}
+                disabled={!users.length}
+              >
+                Export Users
+              </button>
+              <button
+                className="adm-btn adm-btn--danger"
+                onClick={() => setShowLogout(true)}
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </header>
 
-        {/* ══ KPI CARDS ══ */}
-        <div className="adm-kpis">
+        <section className="adm-kpi-grid">
+          {kpis.map((k) => (
+            <div key={k.label} className={`adm-kpi-card tone-${k.tone}`}>
+              <div className="adm-kpi-label">{k.label}</div>
+              <div className="adm-kpi-value">{k.value}</div>
+              <div className="adm-kpi-note">{k.note}</div>
+            </div>
+          ))}
+        </section>
 
-          <div className="adm-kpi" style={{"--delay":"0s"}}>
-            <div className="adm-kpi-icon" style={{color:"#3B82F6",background:"rgba(59,130,246,0.1)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20">
-                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
-              </svg>
-            </div>
-            <div>
-              <p className="adm-kpi-label">Total Users</p>
-              <h3 className="adm-kpi-val">{stats.total_users || 0}</h3>
-              <p className="adm-kpi-note"><span style={{color:"#10B981"}}>+{stats.recent_signups || 0}</span> last 30 days</p>
-            </div>
-          </div>
-
-          <div className="adm-kpi" style={{"--delay":"0.07s"}}>
-            <div className="adm-kpi-icon" style={{color:"#10B981",background:"rgba(16,185,129,0.1)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20">
-                <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
-                <line x1="1" y1="10" x2="23" y2="10"/>
-              </svg>
-            </div>
-            <div>
-              <p className="adm-kpi-label">Active Subscriptions</p>
-              <h3 className="adm-kpi-val">{activeSubs}</h3>
-              <p className="adm-kpi-note"><span style={{color:"#F59E0B"}}>{stats.trial_users || 0}</span> on trial</p>
-            </div>
-          </div>
-
-          <div className="adm-kpi" style={{"--delay":"0.14s"}}>
-            <div className="adm-kpi-icon" style={{color:"#F59E0B",background:"rgba(245,158,11,0.1)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20">
-                <line x1="12" y1="1" x2="12" y2="23"/>
-                <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-              </svg>
-            </div>
-            <div>
-              <p className="adm-kpi-label">Total MRR</p>
-              <h3 className="adm-kpi-val">₹{totalRev.toLocaleString("en-IN")}</h3>
-              <p className="adm-kpi-note">Monthly Recurring Revenue</p>
-            </div>
-          </div>
-
-          <div className="adm-kpi" style={{"--delay":"0.21s"}}>
-            <div className="adm-kpi-icon" style={{color:"#EF4444",background:"rgba(239,68,68,0.1)"}}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="20" height="20">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="12" y1="8" x2="12" y2="12"/>
-                <line x1="12" y1="16" x2="12.01" y2="16"/>
-              </svg>
-            </div>
-            <div>
-              <p className="adm-kpi-label">Expired Subscriptions</p>
-              <h3 className="adm-kpi-val" style={{color:"#EF4444"}}>{stats.expired_users || 0}</h3>
-              <p className="adm-kpi-note">Needs attention</p>
-            </div>
-          </div>
-
-        </div>
-
-        {/* ══ ROW 2: Plan Breakdown + Revenue by Plan ══ */}
-        <div className="adm-row adm-row--half">
-
-          {/* Plan Breakdown */}
+        <section className="adm-row adm-row--wide">
           <div className="adm-card">
             <div className="adm-card-header">
-              <h3 className="adm-card-title">Subscription Breakdown</h3>
-              <span className="adm-card-badge">{stats.total_users || 0} users</span>
-            </div>
-            {stats.active_by_plan?.length > 0 ? (
-              <div className="plan-breakdown">
-                {/* Stacked bar */}
-                <div className="plan-stack-bar">
-                  {stats.active_by_plan.map((plan, i) => {
-                    const pct = stats.total_users > 0
-                      ? (plan.count / stats.total_users) * 100 : 0;
-                    return (
-                      <div key={i} className="plan-stack-seg"
-                        style={{width:`${pct}%`, background: PLAN_COLORS[plan.plan_name] || "#4A5568"}}
-                        title={`${plan.plan_name}: ${plan.count} users (${Math.round(pct)}%)`}
-                      />
-                    );
-                  })}
-                </div>
-                {/* Legend rows */}
-                <div className="plan-rows">
-                  {stats.active_by_plan.map((plan, i) => {
-                    const pct = stats.total_users > 0
-                      ? Math.round((plan.count / stats.total_users) * 100) : 0;
-                    const col = PLAN_COLORS[plan.plan_name] || "#4A5568";
-                    return (
-                      <div key={i} className="plan-row-item">
-                        <div className="plan-row-left">
-                          <span className="plan-dot" style={{background:col}}/>
-                          <span className="plan-row-name">{plan.plan_name}</span>
-                        </div>
-                        <div className="plan-row-right">
-                          <span className="plan-row-count">{plan.count} users</span>
-                          <span className="plan-row-pct">{pct}%</span>
-                          <span className="plan-row-rev">₹{parseFloat(plan.revenue||0).toLocaleString("en-IN")}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div>
+                <h3 className="adm-card-title">Revenue Timeline</h3>
+                <p className="adm-card-sub">
+                  Completed orders by day - {rangeStart} to {rangeEnd}
+                </p>
               </div>
-            ) : <EmptyState label="No subscription data" />}
-          </div>
-
-          {/* Revenue by Plan */}
-          <div className="adm-card">
-            <div className="adm-card-header">
-              <h3 className="adm-card-title">Revenue by Plan</h3>
-              <span className="adm-card-badge">₹{totalRev.toLocaleString("en-IN")} total</span>
+              <div className="adm-range">
+                <label className="adm-range-field">
+                  <span>From</span>
+                  <input
+                    type="date"
+                    value={rangeStart}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setRangeStart(next);
+                      if (rangeEnd && next > rangeEnd) setRangeEnd(next);
+                    }}
+                  />
+                </label>
+                <label className="adm-range-field">
+                  <span>To</span>
+                  <input
+                    type="date"
+                    value={rangeEnd}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setRangeEnd(next);
+                      if (rangeStart && next < rangeStart) setRangeStart(next);
+                    }}
+                  />
+                </label>
+              </div>
             </div>
-            {stats.revenue_by_plan?.length > 0 ? (
-              <div className="rev-bars">
-                {stats.revenue_by_plan.map((plan, i) => {
-                  const rev  = parseFloat(plan.revenue || 0);
-                  const pct  = (rev / maxPlanRev) * 100;
-                  const col  = PLAN_COLORS[plan.plan_name] || "#4A5568";
-                  const share = totalRev > 0 ? Math.round((rev/totalRev)*100) : 0;
-                  return (
-                    <div key={i} className="rev-bar-row">
-                      <div className="rev-bar-meta">
-                        <div className="rev-bar-name">
-                          <span className="plan-dot" style={{background:col}}/>
-                          {plan.plan_name}
-                        </div>
-                        <div className="rev-bar-nums">
-                          <span className="rev-bar-share">{share}%</span>
-                          <span className="rev-bar-val">₹{rev.toLocaleString("en-IN")}</span>
-                        </div>
-                      </div>
-                      <div className="rev-bar-track">
-                        <div className="rev-bar-fill"
-                          style={{width:`${pct}%`, background:`linear-gradient(90deg,${col},${col}99)`}}
+
+            <div className="adm-rev-summary">
+              <div className="adm-rev-stat">
+                <span>Range Revenue</span>
+                <strong>{fmtMoney(revenueReport.summary?.total_revenue || 0)}</strong>
+              </div>
+              <div className="adm-rev-stat">
+                <span>Avg per day</span>
+                <strong>{fmtMoney(avgDailyRevenue)}</strong>
+              </div>
+              <div className="adm-rev-stat">
+                <span>Completed orders</span>
+                <strong>{fmtNumber(revenueReport.summary?.total_orders || 0)}</strong>
+              </div>
+            </div>
+
+            {revenueLoading ? (
+              <div className="adm-chart-empty">Loading revenue...</div>
+            ) : revenueError ? (
+              <div className="adm-chart-empty adm-chart-empty--error">
+                {revenueError}
+              </div>
+            ) : seriesData.length === 0 ? (
+              <div className="adm-chart-empty">No revenue in this range</div>
+            ) : (
+              <div className="adm-chart">
+                <svg viewBox="0 0 600 180" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="adm-rev-fill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.35" />
+                      <stop offset="100%" stopColor="#3B82F6" stopOpacity="0.02" />
+                    </linearGradient>
+                  </defs>
+                  {(() => {
+                    const h = 170;
+                    const top = 10;
+                    const bottom = 20;
+                    const inner = h - top - bottom;
+                    const pts = seriesData
+                      .map((p, i) => {
+                        const x =
+                          (i / (seriesData.length - 1 || 1)) * 600;
+                        const y = h - bottom - (p.revenue / seriesMax) * inner;
+                        return `${x},${y}`;
+                      })
+                      .join(" ");
+                    const fill = `0,${h - bottom} ${pts} 600,${h - bottom}`;
+                    return (
+                      <>
+                        <polygon
+                          points={fill}
+                          fill="url(#adm-rev-fill)"
+                          className="adm-chart-area"
                         />
-                      </div>
-                    </div>
-                  );
-                })}
+                        <polyline
+                          points={pts}
+                          fill="none"
+                          stroke="#3B82F6"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="adm-chart-line"
+                        />
+                      </>
+                    );
+                  })()}
+                </svg>
+                <div className="adm-chart-labels">
+                  {chartLabels.map((item) => (
+                    <span key={item.date}>
+                      {new Date(item.date).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                      })}
+                    </span>
+                  ))}
+                </div>
               </div>
-            ) : <EmptyState label="No revenue data" />}
+            )}
           </div>
 
-        </div>
+          <div className="adm-card">
+            <div className="adm-card-header">
+              <div>
+                <h3 className="adm-card-title">Subscription Revenue</h3>
+                <p className="adm-card-sub">Active subscriptions by plan</p>
+              </div>
+              <span className="adm-card-badge">
+                {fmtMoney(subscriptionRevenue)} total
+              </span>
+            </div>
 
-        {/* ══ USERS TABLE ══ */}
-        <div className="adm-card adm-card--full">
+            {planStatsLoading ? (
+              <div className="adm-plan-note">Loading plan stats...</div>
+            ) : planStatsError ? (
+              <div className="adm-plan-note adm-plan-note--error">
+                {planStatsError}
+              </div>
+            ) : planRevenue.length === 0 ? (
+              <div className="adm-plan-note">No plans found.</div>
+            ) : null}
+            <div className="adm-plan-bars">
+              {planRevenue.map((p) => (
+                <div key={p.label} className="adm-plan-row">
+                  <div className="adm-plan-meta">
+                    <span className={`adm-plan-pill plan-${p.tone}`}>
+                      {p.label}
+                    </span>
+                    <span className="adm-plan-orders">
+                      {fmtNumber(p.users)} active users
+                    </span>
+                  </div>
+                  <div className="adm-plan-bar">
+                    <div
+                      className={`adm-plan-fill plan-${p.tone}`}
+                      style={{
+                        width: `${(p.revenue / planRevenueMax) * 100}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="adm-plan-value">{fmtMoney(p.revenue)}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="adm-plan-counts">
+              {planCounts.map((p) => (
+                <div key={p.label} className="adm-plan-count">
+                  <span className={`adm-plan-pill plan-${p.tone}`}>
+                    {p.label}
+                  </span>
+                  <strong>{fmtNumber(p.count)}</strong>
+                  <span>active</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="adm-card adm-card--full">
           <div className="adm-card-header">
-            <h3 className="adm-card-title">All Users
-              <span className="adm-card-badge" style={{marginLeft:10}}>{filteredUsers.length}</span>
-            </h3>
+            <div>
+              <h3 className="adm-card-title">Subscription Plans</h3>
+              <p className="adm-card-sub">
+                Current plans, limits, and active subscribers
+              </p>
+            </div>
+            <span className="adm-card-badge">
+              {fmtMoney(subscriptionRevenue)} revenue
+            </span>
+          </div>
+
+          {planStatsLoading ? (
+            <div className="adm-plan-note">Loading plan stats...</div>
+          ) : planStatsError ? (
+            <div className="adm-plan-note adm-plan-note--error">
+              {planStatsError}
+            </div>
+          ) : planStatsOrdered.length === 0 ? (
+            <div className="adm-plan-note">No plans found.</div>
+          ) : (
+            <div className="adm-table-wrap">
+              <table className="adm-table adm-plan-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Plan</th>
+                    <th>Price</th>
+                    <th>Restaurant Limit</th>
+                    <th>Features</th>
+                    <th>Active Users</th>
+                    <th>Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planStatsOrdered.map((plan) => (
+                    <tr key={plan.id}>
+                      <td className="adm-td--num">{plan.id}</td>
+                      <td>
+                        <span className={`adm-plan-pill plan-${plan.tone}`}>
+                          {plan.label}
+                        </span>
+                      </td>
+                      <td>{fmtMoney(plan.price)}</td>
+                      <td>{plan.restaurant_limit ?? "—"}</td>
+                      <td className="adm-plan-features">
+                        {plan.features || "—"}
+                      </td>
+                      <td>{fmtNumber(plan.active_users)}</td>
+                      <td>{fmtMoney(plan.revenue)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="adm-row">
+          <div className="adm-card">
+            <div className="adm-card-header">
+              <div>
+                <h3 className="adm-card-title">Role Distribution</h3>
+                <p className="adm-card-sub">Admin vs owner mix across tenants</p>
+              </div>
+              <span className="adm-card-badge">{fmtNumber(totalUsers)} users</span>
+            </div>
+            <div className="adm-role-bar">
+              {roleMix.map((r) => (
+                <span
+                  key={r.label}
+                  className={`adm-role-seg seg-${r.tone}`}
+                  style={{ width: `${r.pct}%` }}
+                  title={`${r.label}: ${r.count} users (${r.pct}%)`}
+                />
+              ))}
+            </div>
+            <div className="adm-role-legend">
+              {roleMix.map((r) => (
+                <div key={r.label} className={`adm-role-item ${r.tone}`}>
+                  <span className="adm-role-dot" />
+                  <span>{r.label}</span>
+                  <strong>{fmtNumber(r.count)}</strong>
+                  <em>{r.pct}%</em>
+                </div>
+              ))}
+            </div>
+            <div className="adm-mini-grid">
+              <div>
+                <span>Avg restaurants per owner</span>
+                <strong>{restaurantsPerOwner.toFixed(2)}</strong>
+              </div>
+              <div>
+                <span>Revenue per owner</span>
+                <strong>{fmtMoney(revenuePerOwner)}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div className="adm-card">
+            <div className="adm-card-header">
+              <div>
+                <h3 className="adm-card-title">Platform Health</h3>
+                <p className="adm-card-sub">Service checks and configuration</p>
+              </div>
+            </div>
+            <div className="adm-health-list">
+              {health.map((h) => (
+                <div key={h.label} className={`adm-health-item ${h.tone}`}>
+                  <div className="adm-health-left">
+                    <span className="adm-health-label">{h.label}</span>
+                    <span className="adm-health-detail">{h.detail}</span>
+                  </div>
+                  <span className="adm-health-status">{h.status}</span>
+                </div>
+              ))}
+            </div>
+            <div className="adm-action-card">
+              <h4>Action Center</h4>
+              <button className="adm-action-btn" disabled>
+                Invite Admin (soon)
+              </button>
+              <button className="adm-action-btn" disabled>
+                View Audit Logs (soon)
+              </button>
+              <button className="adm-action-btn" disabled>
+                Configure Billing (soon)
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="adm-card adm-card--full">
+          <div className="adm-card-header">
+            <div>
+              <h3 className="adm-card-title">User Directory</h3>
+              <p className="adm-card-sub">
+                Search, filter, and review tenant accounts.
+              </p>
+            </div>
             <div className="adm-table-controls">
-              {/* Search */}
               <div className="adm-search">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
                 <input
                   className="adm-search-input"
-                  placeholder="Search name or email…"
+                  placeholder="Search name or email"
                   value={search}
-                  onChange={e => setSearch(e.target.value)}
+                  onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              {/* Plan filter */}
-              <select className="adm-select" value={planFilter} onChange={e => setPlanFilter(e.target.value)}>
-                <option value="all">All Plans</option>
-                {uniquePlans.map(p => (
-                  <option key={p} value={p.toLowerCase()}>{p}</option>
-                ))}
+              <select
+                className="adm-select"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
+              >
+                <option value="all">All roles</option>
+                <option value="owner">Owners</option>
+                <option value="admin">Admins</option>
+              </select>
+              <select
+                className="adm-select"
+                value={planFilter}
+                onChange={(e) => setPlanFilter(e.target.value)}
+              >
+                <option value="all">All plans</option>
+                <option value="basic">Basic</option>
+                <option value="pro">Pro</option>
+                <option value="premium">Premium</option>
+                <option value="trial">Trial</option>
               </select>
             </div>
           </div>
 
-          <div className="adm-table-wrap">
-            <table className="adm-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Plan</th>
-                  <th>Status</th>
-                  <th>Expires</th>
-                  <th>Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.length === 0 ? (
-                  <tr><td colSpan={7} style={{textAlign:"center",padding:"32px",color:"#4A5568"}}>No users found</td></tr>
-                ) : filteredUsers.map((user, i) => {
-                  const planCol = PLAN_COLORS[user.plan_name] || "#4A5568";
-                  const isExpired = user.status?.toLowerCase() === "expired" || user.status?.toLowerCase() === "cancelled";
-                  const isActive  = user.status?.toLowerCase() === "active";
-                  const isTrial   = user.status?.toLowerCase() === "trial";
-                  return (
-                    <tr key={user.id} className={i % 2 === 0 ? "adm-tr--even" : ""}>
-                      <td className="adm-td--num">{i + 1}</td>
-                      <td className="adm-td--name">
-                        <div className="adm-user-avatar" style={{background:`${planCol}20`,color:planCol}}>
-                          {(user.name || "?")[0].toUpperCase()}
-                        </div>
-                        {user.name || "—"}
-                      </td>
-                      <td className="adm-td--email">{user.email}</td>
-                      <td>
-                        <span className="adm-plan-badge"
-                          style={{color:planCol, background:`${planCol}15`, borderColor:`${planCol}30`}}>
-                          {user.plan_name || "None"}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`adm-status-badge ${isActive?"adm-status--active":isTrial?"adm-status--trial":isExpired?"adm-status--expired":"adm-status--neutral"}`}>
-                          <span className="adm-status-dot"/>
-                          {user.status || "Unknown"}
-                        </span>
-                      </td>
-                      <td className="adm-td--date">
-                        {user.end_date
-                          ? new Date(user.end_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})
-                          : "—"}
-                      </td>
-                      <td>
-                        {user.role === "admin" ? (
-                          <span className="adm-role-badge adm-role--admin">
-                            <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M2 19h20v2H2v-2zM2 5l5 7.5L12 3l5 9.5L22 5v12H2V5z"/></svg>
-                            Admin
-                          </span>
-                        ) : (
-                          <span className="adm-role-badge adm-role--owner">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="10" height="10"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                            Owner
-                          </span>
-                        )}
-                      </td>
+          <div className="adm-directory">
+            <div className="adm-directory-main">
+              <div className="adm-table-wrap">
+                <table className="adm-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Plan</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="adm-empty-row">
+                          No users found
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredUsers.map((user, i) => (
+                        <tr key={user.id}>
+                          <td className="adm-td--num">{i + 1}</td>
+                          <td className="adm-td--name">
+                            <span className="adm-user-avatar">
+                              {(user.name || "?")[0].toUpperCase()}
+                            </span>
+                            {user.name || "Unknown"}
+                          </td>
+                          <td className="adm-td--email">{user.email || "Unknown"}</td>
+                          <td>
+                            <span
+                              className={`adm-role-pill ${
+                                user.role === "admin" ? "admin" : "owner"
+                              }`}
+                            >
+                              {user.role === "admin" ? "Admin" : "Owner"}
+                            </span>
+                          </td>
+                          <td>
+                            <span
+                              className={`adm-plan-pill plan-${planTone(
+                                user.plan
+                              )}`}
+                            >
+                              {normalizePlan(user.plan)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <aside className="adm-directory-side">
+              <div className="adm-side-header">
+                <h4>Newest Users</h4>
+                <span>By ID</span>
+              </div>
+              {recentUsers.length === 0 ? (
+                <p className="adm-side-empty">No recent users</p>
+              ) : (
+                recentUsers.map((u) => (
+                  <div key={u.id} className="adm-side-row">
+                    <div className="adm-side-avatar">
+                      {(u.name || "?")[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="adm-side-name">{u.name || "Unknown"}</div>
+                      <div className="adm-side-email">{u.email || "Unknown"}</div>
+                    </div>
+                    <span
+                      className={`adm-role-pill ${
+                        u.role === "admin" ? "admin" : "owner"
+                      }`}
+                    >
+                      {u.role === "admin" ? "Admin" : "Owner"}
+                    </span>
+                  </div>
+                ))
+              )}
+            </aside>
           </div>
-        </div>
-
+        </section>
       </div>
-    </div>
-  );
-}
-
-function EmptyState({ label }) {
-  return (
-    <div className="adm-empty">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" width="32" height="32" style={{color:"#1C2A42"}}>
-        <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-      </svg>
-      <p>{label}</p>
     </div>
   );
 }

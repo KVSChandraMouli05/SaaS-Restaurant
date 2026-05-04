@@ -2,8 +2,16 @@ import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import "./Sidebar.css";
 
-const Sidebar = ({ isOpen, onLogout }) => {
+const Sidebar = ({ isOpen, onLogout, subscriptionLocked = false }) => {
   const navigate = useNavigate();
+
+  const lockedNavProps = subscriptionLocked
+    ? {
+        onClick: (e) => e.preventDefault(),
+        "aria-disabled": true,
+        tabIndex: -1,
+      }
+    : {};
 
   const handleLogout = () => {
     if (onLogout) onLogout();
@@ -11,7 +19,7 @@ const Sidebar = ({ isOpen, onLogout }) => {
   };
 
   return (
-    <div className={`sidebar ${isOpen ? "open" : "closed"}`}>
+    <div className={`sidebar ${isOpen ? "open" : "closed"} ${subscriptionLocked ? "subscription-locked" : ""}`}>
 
       {/* ── Logo ── */}
       <div className="sidebar-logo">
@@ -25,10 +33,19 @@ const Sidebar = ({ isOpen, onLogout }) => {
 
       <div className="sidebar-divider" />
 
+      {subscriptionLocked && (
+        <div className="sub-lock-notice" role="status" aria-live="polite">
+          <span className="sub-lock-notice-title">Subscription Required</span>
+          <span className="sub-lock-notice-text">
+            Your trial has expired. Choose Basic, Pro, or Premium to unlock all modules.
+          </span>
+        </div>
+      )}
+
       {/* ── Main Navigation ── */}
       <nav className="sidebar-nav">
 
-        <NavLink to="/dashboard" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <NavLink to="/dashboard" className={({ isActive }) => `nav-link ${isActive ? "active" : ""} ${subscriptionLocked ? "nav-link-locked" : ""}`} {...lockedNavProps}>
           <span className="nav-icon">
             <svg viewBox="0 0 20 20" fill="currentColor">
               <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
@@ -37,7 +54,7 @@ const Sidebar = ({ isOpen, onLogout }) => {
           <span className="nav-text">Dashboard</span>
         </NavLink>
 
-        <NavLink to="/restaurants" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <NavLink to="/restaurants" className={({ isActive }) => `nav-link ${isActive ? "active" : ""} ${subscriptionLocked ? "nav-link-locked" : ""}`} {...lockedNavProps}>
           <span className="nav-icon">
             <svg viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4zm3 1h2v2H7V5zm0 4h2v2H7V9zm0 4h2v2H7v-2zm4-8h2v2h-2V5zm0 4h2v2h-2V9zm0 4h2v2h-2v-2z" clipRule="evenodd"/>
@@ -46,7 +63,7 @@ const Sidebar = ({ isOpen, onLogout }) => {
           <span className="nav-text">Restaurants</span>
         </NavLink>
 
-        <NavLink to="/menu" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <NavLink to="/menu" className={({ isActive }) => `nav-link ${isActive ? "active" : ""} ${subscriptionLocked ? "nav-link-locked" : ""}`} {...lockedNavProps}>
           <span className="nav-icon">
             <svg viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 5a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd"/>
@@ -55,7 +72,7 @@ const Sidebar = ({ isOpen, onLogout }) => {
           <span className="nav-text">Menu</span>
         </NavLink>
 
-        <NavLink to="/orders" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <NavLink to="/orders" className={({ isActive }) => `nav-link ${isActive ? "active" : ""} ${subscriptionLocked ? "nav-link-locked" : ""}`} {...lockedNavProps}>
           <span className="nav-icon">
             <svg viewBox="0 0 20 20" fill="currentColor">
               <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/>
@@ -64,7 +81,7 @@ const Sidebar = ({ isOpen, onLogout }) => {
           <span className="nav-text">Orders</span>
         </NavLink>
 
-        <NavLink to="/owner-analytics" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+        <NavLink to="/owner-analytics" className={({ isActive }) => `nav-link ${isActive ? "active" : ""} ${subscriptionLocked ? "nav-link-locked" : ""}`} {...lockedNavProps}>
           <span className="nav-icon">
             <svg viewBox="0 0 20 20" fill="currentColor">
               <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zm6-4a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zm6-3a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
@@ -91,8 +108,9 @@ const Sidebar = ({ isOpen, onLogout }) => {
         {/* ── Settings — now a real NavLink ── */}
         <NavLink
           to="/settings"
-          className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}
+          className={({ isActive }) => `nav-link ${isActive ? "active" : ""} ${subscriptionLocked ? "nav-link-locked" : ""}`}
           title="Settings"
+          {...lockedNavProps}
         >
           <span className="nav-icon">
             <svg viewBox="0 0 20 20" fill="currentColor">

@@ -1,38 +1,35 @@
-.app-layout {
-  display: flex;
+@import './theme.css';
+
+/* ── Base resets ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--t1);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
 
-.main-content { background: #080C14;
-  padding: 100px 30px 30px 30px;
-  transition: 0.3s;
-  width: 100%;
+#root {
+  background: var(--bg);
+  min-height: 100vh;
 }
 
-.main-content.shifted {
-  margin-left: 240px;
-}
+/* ── Layout ── */
+.app-layout    { display: flex; background: var(--bg); }
+.main-content  { background: var(--bg); transition: margin-left .3s; width: 100%; }
+.main-content.shifted { margin-left: 240px; }
+.main-content.full    { margin-left: 0; }
+.main-layout   { display: flex; min-height: 100vh; background: var(--bg); }
+.page-content  { background: var(--bg); flex: 1; }
 
-.main-content.full {
-  margin-left: 0;
-}
+/* ── Links ── */
+a { color: var(--blue); text-decoration: none; }
+a:hover { color: var(--blue-t); }
 
-.topbar {
-  position: fixed;
-  width: 100%;
-  height: 60px;
-  background: #0D1220;
-  color: white;
-  display: flex;
-  align-items: center;
-  padding: 0 20px;
-  z-index: 1000;
-}
-
-.hamburger {
-  font-size: 22px;
-  cursor: pointer;
-  margin-right: 20px;
-}
-
-body, #root { background: #080C14; color: #EDF2FF; }
-.main-content { background: #080C14; background: #080C14; }
+/* ── Animations ── */
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes pulse   { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+@keyframes fadeIn  { from { opacity:0; } to { opacity:1; } }
+@keyframes slideUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }

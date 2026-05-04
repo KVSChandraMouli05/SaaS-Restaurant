@@ -197,7 +197,7 @@ function TierPill({ tier }) {
 }
 
 /* ─────────────────── MAIN ─────────────────── */
-export default function Subscription() {
+export default function Subscription({ subscriptionLocked = false }) {
   const [plans,        setPlans]        = useState([]);
   const [currentPlan,  setCurrentPlan]  = useState(null);
   const [restCount,    setRestCount]    = useState(0);
@@ -253,6 +253,17 @@ export default function Subscription() {
   const curIdx    = PLAN_ORDER.indexOf(planName);
   const paidPlans = plans.filter(p => p.name !== "Trial");
   const trialPlan = plans.find(p => p.name === "Trial");
+  const endDateRaw = currentPlan?.end_date ?? currentPlan?.expires_at;
+  const isExpired = (() => {
+    if (!endDateRaw) return false;
+    const end = new Date(endDateRaw);
+    if (Number.isNaN(end.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    return end < today;
+  })();
+  const showLockedNotice = subscriptionLocked || isExpired;
 
   return (
     <div className="sub-page">
@@ -335,6 +346,23 @@ export default function Subscription() {
                 </span>
               </div>
 
+            </div>
+          </div>
+        )}
+
+        {showLockedNotice && (
+          <div className="sub-expired-hero">
+            <div className="sub-expired-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
+                <path fillRule="evenodd" d="M10 1a9 9 0 100 18 9 9 0 000-18zm1 5a1 1 0 10-2 0v4a1 1 0 102 0V6zm-1 8a1.25 1.25 0 100 2.5A1.25 1.25 0 0010 14z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <p className="sub-expired-title">Your trial plan has expired</p>
+              <p className="sub-expired-text">
+                Access to dashboard, restaurants, orders, menu, and analytics is locked.
+                Subscribe to Basic, Pro, or Premium to continue.
+              </p>
             </div>
           </div>
         )}
