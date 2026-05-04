@@ -53,7 +53,7 @@ router.get(
         sp.features
       FROM subscriptions s
       JOIN subscription_plans sp ON s.plan_id = sp.id
-      WHERE s.user_id = $1 AND s.status = 'active'
+      WHERE s.user_id = $1 AND s.status = 'active' AND s.end_date >= CURRENT_DATE
       ORDER BY s.end_date DESC
       LIMIT 1
       `,
@@ -74,6 +74,10 @@ router.get(
 
 router.post("/upgrade", authMiddleware, async (req, res) => {
   try {
+    if (req.user.role === "admin") {
+      return res.status(403).json({ message: "Admin cannot subscribe" });
+    }
+
     const { plan_name } = req.body;
     const userId = req.user.id;
 
