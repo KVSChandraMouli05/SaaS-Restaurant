@@ -68,7 +68,7 @@ router.post("/register", validate("register"), catchAsync(async (req, res, next)
 
   // Get Trial plan id dynamically
   const trialPlan = await pool.query(
-    "SELECT id FROM subscription_plans WHERE name = 'Trial' LIMIT 1"
+    "SELECT id FROM subscription_plans WHERE plan_name = 'Trial' LIMIT 1"
   );
   const trialPlanId = trialPlan.rows.length > 0 ? trialPlan.rows[0].id : 8;
 
