@@ -1,4 +1,6 @@
-﻿require("dotenv").config();
+﻿if (process.env.NODE_ENV !== 'production') {
+	require("dotenv").config();
+}
 console.log("RUNNING SERVER FROM:", __filename);
 const express = require("express");
 const cors = require("cors");
