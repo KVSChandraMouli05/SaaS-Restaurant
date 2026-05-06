@@ -21,7 +21,7 @@ export default function Restaurants() {
   /* ── FETCH ── */
   const fetchRestaurants = async () => {
     try {
-      const res  = await fetch("http://localhost:5000/api/restaurants", {
+      const res  = await fetch("https://backend-1wnt.onrender.com/api/restaurants", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -41,7 +41,7 @@ export default function Restaurants() {
 
   const fetchSubscription = async () => {
     try {
-      const res  = await fetch("http://localhost:5000/api/subscription/current", {
+      const res  = await fetch("https://backend-1wnt.onrender.com/api/subscription/current", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -60,7 +60,7 @@ export default function Restaurants() {
     }
     setSubmitting(true);
     try {
-      const res  = await fetch("http://localhost:5000/api/restaurants", {
+      const res  = await fetch("https://backend-1wnt.onrender.com/api/restaurants", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(formData),
@@ -80,7 +80,7 @@ export default function Restaurants() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const res  = await fetch(`http://localhost:5000/api/restaurants/${editingRestaurant.id}`, {
+      const res  = await fetch(`https://backend-1wnt.onrender.com/api/restaurants/${editingRestaurant.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(formData),
@@ -99,7 +99,7 @@ export default function Restaurants() {
   const handleDelete = async (id, name) => {
     if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
     try {
-      const res  = await fetch(`http://localhost:5000/api/restaurants/${id}`, {
+      const res  = await fetch(`https://backend-1wnt.onrender.com/api/restaurants/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

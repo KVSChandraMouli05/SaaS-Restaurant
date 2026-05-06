@@ -213,7 +213,7 @@ export default function Subscription({ subscriptionLocked = false }) {
 
   const fetchPlans = async () => {
     try {
-      const r = await fetch("http://localhost:5000/api/subscription/plans");
+      const r = await fetch("https://backend-1wnt.onrender.com/api/subscription/plans");
       const d = await r.json();
       if (d.status === "success") setPlans(Array.isArray(d.data) ? d.data : d.data?.plans ?? []);
     } catch {}
@@ -222,7 +222,7 @@ export default function Subscription({ subscriptionLocked = false }) {
   const fetchCurrent = async () => {
     if (!token) return;
     try {
-      const r = await fetch("http://localhost:5000/api/subscription/current", { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch("https://backend-1wnt.onrender.com/api/subscription/current", { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       if (d.status === "success") setCurrentPlan(d.data?.subscription ?? d.data);
     } catch {}
@@ -231,7 +231,7 @@ export default function Subscription({ subscriptionLocked = false }) {
   const fetchRestCount = async () => {
     if (!token) return;
     try {
-      const r = await fetch("http://localhost:5000/api/restaurants", { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch("https://backend-1wnt.onrender.com/api/restaurants", { headers: { Authorization: `Bearer ${token}` } });
       const d = await r.json();
       if (d.status === "success") {
         const n = d.data?.count ?? d.data?.restaurants?.length ?? (Array.isArray(d.data) ? d.data.length : 0);

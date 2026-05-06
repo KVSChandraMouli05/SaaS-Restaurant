@@ -72,7 +72,7 @@ function App() {
   /* ================= SUBSCRIPTION VALIDATION ================= */
   const validateSubscription = async (tkn) => {
     try {
-      const res = await fetch("http://localhost:5000/api/subscription/current", {
+      const res = await fetch("https://backend-1wnt.onrender.com/api/subscription/current", {
         headers: { Authorization: `Bearer ${tkn}` },
       });
 

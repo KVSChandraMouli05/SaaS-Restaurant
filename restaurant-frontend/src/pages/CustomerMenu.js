@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import "./CustomerMenu.css";
 
-const BASE = "http://localhost:5000";
+const BASE = "https://backend-1wnt.onrender.com";
 
 export default function CustomerMenu() {
   const restaurantId = window.location.pathname.split("/menu/")[1]?.split("/")[0];

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./Admindashboard.css";
 
-const API = "http://localhost:5000";
+const API = "https://backend-1wnt.onrender.com";
 const ENV_LABEL = "Production";
 
 const fmtNumber = (n) => Number(n || 0).toLocaleString("en-IN");

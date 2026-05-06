@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import "./Settings.css";
 
-const API = "http://localhost:5000";
+const API = "https://backend-1wnt.onrender.com";
 
 /* ── helper ── */
 const token = () => localStorage.getItem("token");

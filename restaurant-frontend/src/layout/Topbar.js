@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import "./Topbar.css";
 
-const API = "http://localhost:5000";
+const API = "https://backend-1wnt.onrender.com";
 
 const Topbar = ({ onToggleSidebar, sidebarOpen = false }) => {
   const navigate  = useNavigate();

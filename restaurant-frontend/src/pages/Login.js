@@ -25,7 +25,7 @@ export default function Login() {
   // ✅ CHECK SUBSCRIPTION AFTER LOGIN
   const checkSubscription = async (token) => {
     try {
-      const res = await fetch("http://localhost:5000/api/subscription/current", {
+      const res = await fetch("https://backend-1wnt.onrender.com/api/subscription/current", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -50,7 +50,7 @@ export default function Login() {
     setError("");
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/login", {
+      const response = await fetch("https://backend-1wnt.onrender.com/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -88,7 +88,7 @@ export default function Login() {
     setError("");
 
     try {
-      const response = await fetch("http://localhost:5000/api/auth/register", {
+      const response = await fetch("https://backend-1wnt.onrender.com/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -119,7 +119,7 @@ export default function Login() {
 
   // ✅ GOOGLE SIGN IN
   const handleGoogleSignIn = () => {
-    window.location.href = "http://localhost:5000/api/auth/google";
+    window.location.href = "https://backend-1wnt.onrender.com/api/auth/google";
   };
 
   return (

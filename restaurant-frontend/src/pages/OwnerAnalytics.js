@@ -167,7 +167,7 @@ export default function OwnerAnalytics() {
 
       // Fetch plan
       try {
-        const pRes  = await fetch("http://localhost:5000/api/subscription/current", { headers });
+        const pRes  = await fetch("https://backend-1wnt.onrender.com/api/subscription/current", { headers });
         const pData = await pRes.json();
         if (pData.status === "success") {
           const d = pData.data;
@@ -177,13 +177,13 @@ export default function OwnerAnalytics() {
         }
       } catch(e) { console.error("plan fetch:", e); }
 
-      const rRes  = await fetch("http://localhost:5000/api/restaurants", { headers });
+      const rRes  = await fetch("https://backend-1wnt.onrender.com/api/restaurants", { headers });
       const rData = await rRes.json();
       const rList = rData.data?.restaurants ?? rData.data ?? [];
       const restArr = Array.isArray(rList) ? rList : [];
       setRestaurants(restArr);
 
-      const oRes  = await fetch("http://localhost:5000/api/orders", { headers });
+      const oRes  = await fetch("https://backend-1wnt.onrender.com/api/orders", { headers });
       const oData = await oRes.json();
       const orders = Array.isArray(oData.data) ? oData.data : [];
       setAllOrders(orders);
@@ -191,7 +191,7 @@ export default function OwnerAnalytics() {
       const allItems = [];
       for (const r of restArr) {
         try {
-          const mRes  = await fetch(`http://localhost:5000/api/restaurants/${r.id}/menu`, { headers });
+          const mRes  = await fetch(`https://backend-1wnt.onrender.com/api/restaurants/${r.id}/menu`, { headers });
           const mData = await mRes.json();
           const items = mData.data?.items ?? mData.data ?? [];
           if (Array.isArray(items)) {

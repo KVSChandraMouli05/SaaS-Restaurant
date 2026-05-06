@@ -183,7 +183,7 @@ export default function Dashboard() {
     try {
       // Fetch plan
       try {
-        const pRes  = await fetch("http://localhost:5000/api/subscription/current", {
+        const pRes  = await fetch("https://backend-1wnt.onrender.com/api/subscription/current", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const pData = await pRes.json();
@@ -195,7 +195,7 @@ export default function Dashboard() {
         }
       } catch(e) { console.error("plan fetch:", e); }
 
-      const res  = await fetch("http://localhost:5000/api/analytics/user/all-revenue", {
+      const res  = await fetch("https://backend-1wnt.onrender.com/api/analytics/user/all-revenue", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -208,7 +208,7 @@ export default function Dashboard() {
       }
 
       try {
-        const oRes  = await fetch("http://localhost:5000/api/orders", {
+        const oRes  = await fetch("https://backend-1wnt.onrender.com/api/orders", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const oData = await oRes.json();
