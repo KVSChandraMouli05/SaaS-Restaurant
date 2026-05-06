@@ -13,7 +13,10 @@ const pool = new Pool({
   port: config.database.port,
   max: config.database.pool.max,
   idleTimeoutMillis: config.database.pool.idleTimeoutMillis,
-  connectionTimeoutMillis: config.database.pool.connectionTimeoutMillis
+  connectionTimeoutMillis: config.database.pool.connectionTimeoutMillis,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 // Log connection info (without password)
